@@ -1,7 +1,7 @@
 const DEFAULTS = {
   backendUrl: '', apiKey: '', boardName: '',
   fetchPattern: 'autodarts\\.(com|io)/(gs|as|bs)/',
-  wsPattern: '',
+  wsPattern: 'autodarts\\.matches',
   excludePattern: '/users?/|/auth|login|token|keycloak',
   showOverlay: true,
   captureAll: false,

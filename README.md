@@ -133,6 +133,10 @@ Geprüft am 23.09.2026 im ausgelieferten JavaScript der Live-App:
 | Boards | `https://api.autodarts.com/bs/v0/boards` |
 | Live-Events | `wss://play.ws.autodarts.com/ms/v0/subscribe`, Kanal `autodarts.matches` |
 
+Nach dem Seitenaufruf kommen fast alle Aktualisierungen über den WebSocket. Dessen Nachrichten haben
+die Form `{type, channel, topic, data}`; beim Topic `<matchId>.state` steckt die Match-ID nur im Topic.
+`set` und `leg` zählen ab 0, `gameFinished` meldet das Leg-Ende, `finished` das Matchende.
+
 Eine Extension, die nur auf `autodarts.io` hört, sammelt nichts. Die Standardfilter in den
 Extension-Optionen decken beide Domains ab.
 

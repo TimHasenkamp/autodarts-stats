@@ -28,8 +28,10 @@ func TestPlaceholderLegFinished(t *testing.T) {
 	if st.MatchID != "11111111-2222-3333-4444-555555555555" || st.Variant != "X01" || !st.HasScoring {
 		t.Fatalf("unexpected head: %+v", st)
 	}
-	if st.Set != 1 || st.Leg != 1 || st.Finished || st.LegWinner != 0 || st.Winner != -1 {
-		t.Fatalf("unexpected leg info: %+v", st)
+	// Autodarts zaehlt ab 0, intern ab 1.
+	if st.Set != 1 || st.Leg != 1 || st.Finished || st.LegWinner != 0 || st.Winner != -1 || !st.LegFinished {
+		t.Fatalf("unexpected leg info: set=%d leg=%d finished=%v legWinner=%d legFinished=%v",
+			st.Set, st.Leg, st.Finished, st.LegWinner, st.LegFinished)
 	}
 	if len(st.Players) != 2 || st.Players[1].Name != "Jürgen Müller" || st.Players[0].IsBot {
 		t.Fatalf("players: %+v", st.Players)
@@ -58,8 +60,8 @@ func TestPlaceholderFinished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Finished || st.Winner != 1 || st.LegWinner != 1 || st.Leg != 2 {
-		t.Fatalf("finished state: %+v", st)
+	if !st.Finished || st.Winner != 1 || st.LegWinner != 1 || st.Leg != 2 || !st.LegFinished {
+		t.Fatalf("finished state: set=%d leg=%d winner=%d legWinner=%d", st.Set, st.Leg, st.Winner, st.LegWinner)
 	}
 	if st.LegStats[1].HighestCheckout != 161 || st.LegStats[1].Points != 501 || st.LegStats[1].Darts != 15 {
 		t.Errorf("checkout: %+v", st.LegStats[1])
@@ -108,5 +110,42 @@ func TestRealTestdata(t *testing.T) {
 		if st.MatchID == "" || len(st.Players) == 0 {
 			t.Errorf("%s: leerer Zustand %+v", filepath.Base(f), st)
 		}
+	}
+}
+
+// Der WebSocket liefert den Matchzustand unter dem Topic "<matchId>.state".
+// Das Payload selbst enthaelt dann keine id, sie muss aus dem Topic kommen.
+func TestMatchIDAusTopic(t *testing.T) {
+	st, err := New().Parse("ws", "wss://play.ws.autodarts.com/ms/v0/subscribe", load(t, "placeholder/ws_state_ohne_id.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.MatchID != "11111111-2222-3333-4444-555555555555" {
+		t.Fatalf("Match-ID nicht aus dem Topic uebernommen: %q", st.MatchID)
+	}
+	if !st.Finished || st.Winner != 1 || !st.LegFinished {
+		t.Fatalf("Zustand: finished=%v winner=%d legFinished=%v", st.Finished, st.Winner, st.LegFinished)
+	}
+	if len(st.Players) != 2 || st.LegStats[1].HighestCheckout != 161 {
+		t.Fatalf("Spieler/Stats: %+v", st.Players)
+	}
+}
+
+// Das erste und das zweite Leg muessen unterscheidbar sein, sonst wird der
+// Endstand des ersten Legs nie archiviert.
+func TestErstesUndZweitesLegUnterscheidbar(t *testing.T) {
+	a, err := New().Parse("fetch", "", load(t, "placeholder/x01_leg1_running.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New().Parse("fetch", "", load(t, "placeholder/x01_leg2_running.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Leg == b.Leg {
+		t.Fatalf("Leg 1 und Leg 2 haben denselben Zaehler: %d", a.Leg)
+	}
+	if a.Leg != 1 || b.Leg != 2 {
+		t.Fatalf("erwartet 1 und 2, bekommen %d und %d", a.Leg, b.Leg)
 	}
 }

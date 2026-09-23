@@ -36,6 +36,14 @@ Siehe README.md für Aufbau, Befehle und API. Hier nur, was fürs Weiterarbeiten
   average, first9Average, checkoutPercent, checkoutsHit, dartsThrown, plus100, plus140, total180, legsWon, cpuPPR, userId
 - **Wichtig:** Die Extension muss auf `.com` hoeren. Eine Version, die nur `autodarts.io` gefiltert hat,
   sammelt nichts.
+- WebSocket-Protokoll: Client sendet `{type:"subscribe", channel, topic}`, Server antwortet mit
+  `{type, channel, topic, data}`. Topics: `<matchId>.state`, `<matchId>.events`, ...
+  Beim `.state`-Topic steckt die Match-ID **nur im Topic**, nicht im `data`.
+- `set` und `leg` zaehlen **ab 0**; intern wird ab 1 gezaehlt (Parser addiert 1). Nicht auf 1 clampen,
+  sonst sind erstes und zweites Leg ununterscheidbar und es wird nie ein Leg-Endstand archiviert.
+- `gameFinished` = Leg zu Ende, `finished` = Match zu Ende. Der Ingest archiviert das Leg bei
+  `gameFinished`, nicht erst beim Weiterspringen des Leg-Zaehlers.
+- Nach dem Laden der Seite kommen fast alle Aktualisierungen per WebSocket, nicht per REST.
 
 ## TODO(format)
 Das echte Autodarts-JSON ist noch nicht verifiziert. Annahmen stehen kommentiert in

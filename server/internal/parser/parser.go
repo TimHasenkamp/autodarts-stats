@@ -49,6 +49,10 @@ type State struct {
 	Winner int
 	// LegWinner ist der Index des Gewinners des aktuellen Legs, -1 wenn offen.
 	LegWinner int
+	// LegFinished meldet, dass das aktuelle Leg beendet ist. Dann wird der
+	// Stand sofort als Leg-Endstand archiviert, auch wenn der Leg-Zaehler
+	// noch nicht weitergesprungen ist.
+	LegFinished bool
 	// HasScoring: Variante mit Punkte-Average (X01). Sonst bleiben
 	// Average-Felder leer und nur Siege/Darts werden gezaehlt.
 	HasScoring bool

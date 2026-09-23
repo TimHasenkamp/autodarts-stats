@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Your Darts Collector",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Leitet Match-Daten von play.autodarts.io an einen eigenen Stats-Server weiter.",
   "permissions": [
     "storage",

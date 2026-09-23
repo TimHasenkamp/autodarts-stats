@@ -14,10 +14,20 @@
 //	wss://play.ws.autodarts.com/ms/v0/subscribe       Live-Events
 //	Kanal autodarts.matches, Topic {matchId}.state
 //
-// TODO(format): Die Verschachtelung (Reihenfolge der Spieler, genaue Form von
-// stats[] und turns[]) ist weiterhin ungeprueft, dafuer braucht es echte
-// Responses unter testdata/. Der Parser ist bewusst tolerant: fehlende Felder
-// fuehren zu Nullwerten, nicht zu Fehlern.
+// Ebenfalls im JS der App bestaetigt:
+//
+//   - set und leg zaehlen ab 0. Ein frisches Match hat set:0, leg:0.
+//   - gameFinished meldet das Ende eines Legs, finished das Ende des Matches.
+//   - gameWinner ist der Leg-Gewinner, winner der Match-Gewinner, -1 = offen.
+//   - Der WebSocket verpackt alles als {type, channel, topic, data}. Beim
+//     Topic "<matchId>.state" steckt die Match-ID nur im Topic, nicht im data.
+//   - turns tragen playerId (nicht den Index), players tragen id, name,
+//     userId und bei Bots cpuPPR.
+//
+// TODO(format): Die genaue Form von stats[] und turns[] im Live-Payload ist
+// weiterhin ungeprueft, dafuer braucht es echte Responses unter testdata/.
+// Der Parser ist bewusst tolerant: fehlende Felder fuehren zu Nullwerten,
+// nicht zu Fehlern.
 package autodarts
 
 import (
@@ -56,10 +66,12 @@ type rawMatch struct {
 	Player     int             `json:"player"`
 	Winner     *int            `json:"winner"`
 	GameWinner *int            `json:"gameWinner"`
-	Players    []rawPlayer     `json:"players"`
-	Scores     []rawScore      `json:"scores"`
-	Turns      []rawTurn       `json:"turns"`
-	Stats      []rawStatsEntry `json:"stats"`
+	// gameFinished meldet das Ende des aktuellen Legs (nicht des Matches).
+	GameFinished bool            `json:"gameFinished"`
+	Players      []rawPlayer     `json:"players"`
+	Scores       []rawScore      `json:"scores"`
+	Turns        []rawTurn       `json:"turns"`
+	Stats        []rawStatsEntry `json:"stats"`
 }
 
 type rawPlayer struct {
@@ -121,16 +133,25 @@ func (p Parser) Parse(kind, url string, body []byte) (*parser.State, error) {
 	if len(body) == 0 || body[0] != '{' {
 		return nil, parser.ErrNotRecognized
 	}
+	// Der WebSocket verpackt den Zustand als {type, channel, topic, data}.
+	// Die Match-ID steckt dabei im Topic ("<matchId>.state"), nicht im Payload.
+	var topicID string
 	var env wsEnvelope
 	if err := json.Unmarshal(body, &env); err == nil && len(env.Data) > 0 && env.Channel != "" {
 		if !strings.Contains(env.Channel, "match") {
 			return nil, parser.ErrNotRecognized
+		}
+		if i := strings.IndexByte(env.Topic, '.'); i > 0 {
+			topicID = env.Topic[:i]
 		}
 		body = env.Data
 	}
 	var m rawMatch
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, parser.ErrNotRecognized
+	}
+	if m.ID == "" {
+		m.ID = topicID
 	}
 	if m.ID == "" || len(m.Players) == 0 || (m.Variant == "" && m.Turns == nil && m.Stats == nil) {
 		return nil, parser.ErrNotRecognized
@@ -139,15 +160,20 @@ func (p Parser) Parse(kind, url string, body []byte) (*parser.State, error) {
 }
 
 func convert(m *rawMatch) *parser.State {
+	// set und leg zaehlt Autodarts ab 0 (ein frisches Match hat set:0, leg:0).
+	// Intern wird ab 1 gezaehlt, deshalb +1. Wichtig: nicht auf 1 begrenzen,
+	// sonst sind das erste und das zweite Leg nicht unterscheidbar und der
+	// Leg-Endstand wird nie archiviert.
 	st := &parser.State{
-		MatchID:   m.ID,
-		Variant:   m.Variant,
-		Settings:  m.Settings,
-		Finished:  m.Finished,
-		Set:       max(m.Set, 1),
-		Leg:       max(m.Leg, 1),
-		Winner:    -1,
-		LegWinner: -1,
+		MatchID:     m.ID,
+		Variant:     m.Variant,
+		Settings:    m.Settings,
+		Finished:    m.Finished,
+		Set:         m.Set + 1,
+		Leg:         m.Leg + 1,
+		Winner:      -1,
+		LegWinner:   -1,
+		LegFinished: m.GameFinished,
 	}
 	if len(st.Settings) == 0 {
 		st.Settings = json.RawMessage("{}")
@@ -160,6 +186,9 @@ func convert(m *rawMatch) *parser.State {
 	}
 	if m.GameWinner != nil {
 		st.LegWinner = *m.GameWinner
+		if *m.GameWinner >= 0 {
+			st.LegFinished = true
+		}
 	}
 	// TODO(format): Variantennamen pruefen ("X01" angenommen).
 	st.HasScoring = strings.EqualFold(m.Variant, "X01")

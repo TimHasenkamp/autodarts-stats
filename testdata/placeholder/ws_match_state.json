@@ -6,15 +6,51 @@
     "variant": "X01",
     "createdAt": "2026-09-20T18:00:00.000Z",
     "finished": false,
-    "set": 1, "leg": 1, "round": 1, "player": 0,
-    "winner": -1, "gameWinner": -1,
+    "set": 0,
+    "leg": 0,
+    "round": 1,
+    "player": 0,
+    "winner": -1,
+    "gameWinner": -1,
     "players": [
-      {"id": "p-a", "index": 0, "name": "Tim", "userId": "", "cpuPPR": null},
-      {"id": "p-bot", "index": 1, "name": "Bot Level 5", "userId": "", "cpuPPR": 60},
-      {"id": "p-c", "index": 2, "name": "Anna", "userId": "user-uuid-anna", "cpuPPR": null}
+      {
+        "id": "p-a",
+        "index": 0,
+        "name": "Tim",
+        "userId": "",
+        "cpuPPR": null
+      },
+      {
+        "id": "p-bot",
+        "index": 1,
+        "name": "Bot Level 5",
+        "userId": "",
+        "cpuPPR": 60
+      },
+      {
+        "id": "p-c",
+        "index": 2,
+        "name": "Anna",
+        "userId": "user-uuid-anna",
+        "cpuPPR": null
+      }
     ],
-    "scores": [{"legs": 0, "sets": 0}, {"legs": 0, "sets": 0}, {"legs": 0, "sets": 0}],
+    "scores": [
+      {
+        "legs": 0,
+        "sets": 0
+      },
+      {
+        "legs": 0,
+        "sets": 0
+      },
+      {
+        "legs": 0,
+        "sets": 0
+      }
+    ],
     "turns": [],
-    "stats": []
+    "stats": [],
+    "gameFinished": false
   }
 }

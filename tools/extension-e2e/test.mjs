@@ -21,6 +21,14 @@ mf.host_permissions = ['https://play.autodarts.com/*', 'https://play.autodarts.i
 fs.writeFileSync(path.join(extDir, 'manifest.json'), JSON.stringify(mf, null, 2));
 
 const matchJson = fs.readFileSync(path.join(PROJECT, 'testdata/placeholder/x01_match_finished.json'), 'utf8');
+const runningJson = fs.readFileSync(path.join(PROJECT, 'testdata/placeholder/x01_leg1_running.json'), 'utf8');
+
+const wsState = (() => {
+  const m = JSON.parse(matchJson);
+  const id = m.id;
+  delete m.id;
+  return JSON.stringify({ type: 'message', channel: 'autodarts.matches', topic: id + '.state', data: m });
+})();
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Fake Autodarts</title></head>
 <body><h1>Fake Autodarts</h1><div id="out">start</div>
@@ -32,6 +40,11 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Fake Autod
     const j = await r.json();
     log('fetch ok ' + j.id);
   } catch (e) { log('fetch fail ' + e.message); }
+  try {
+    const ws = new WebSocket('wss://play.ws.autodarts.com/ms/v0/subscribe');
+    ws.addEventListener('open', () => { ws.send(JSON.stringify({ type: 'subscribe', channel: 'autodarts.matches', topic: 'x.state' })); log('ws offen'); });
+    ws.addEventListener('message', (e) => log('ws msg ' + e.data.length));
+  } catch (e) { log('ws fail ' + e.message); }
   try {
     const x = new XMLHttpRequest();
     x.open('GET', 'https://api.autodarts.com/as/v0/matches/xhr-variante/stats');
@@ -66,7 +79,12 @@ console.log('Konfiguration gesetzt');
 await ctx.route('https://play.autodarts.{com,io}/**', (route) =>
   route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: PAGE }));
 await ctx.route('https://api.autodarts.com/**', (route) =>
-  route.fulfill({ status: 200, contentType: 'application/json', body: matchJson }));
+  route.fulfill({ status: 200, contentType: 'application/json', body: runningJson }));
+
+// WebSocket faelschen: sendet den Matchzustand wie der echte Dienst.
+await ctx.routeWebSocket('wss://play.ws.autodarts.com/**', (ws) => {
+  ws.onMessage(() => ws.send(wsState));
+});
 
 const page = await ctx.newPage();
 const consoleErrors = [];
@@ -107,14 +125,21 @@ await opt.waitForTimeout(1500);
 const res = await fetch(`${BACKEND}/api/matches?limit=5`);
 const matches = await res.json();
 console.log('Matches im Backend:', matches.length);
+let ok = matches.length > 0;
 if (matches.length) {
-  console.log('  Spieler:', matches[0].players.map((p) => `${p.display_name}${p.won ? ' (Sieger)' : ''}`).join(', '));
-  console.log('  Legs:', matches[0].players.map((p) => p.legs_won).join(':'));
+  const m = matches[0];
+  console.log('  Spieler:', m.players.map((p) => `${p.display_name}${p.won ? ' (Sieger)' : ''}`).join(', '));
+  console.log('  Legs:', m.players.map((p) => p.legs_won).join(':'));
+  console.log('  Match beendet:', m.finished);
+  if (!m.finished) { console.log('  FEHLER: Match haette ueber den WebSocket beendet werden muessen'); ok = false; }
+  const detail = await (await fetch(`${BACKEND}/api/matches/${m.match_id}`)).json();
+  console.log('  archivierte Leg-Zeilen:', detail.legs.length);
+  if (detail.legs.length === 0) { console.log('  FEHLER: kein Leg archiviert'); ok = false; }
 }
 if (consoleErrors.length) console.log('Konsolenfehler:', consoleErrors.slice(0, 3));
 
 await ctx.close();
 fs.rmSync(extDir, { recursive: true, force: true });
 fs.rmSync(userDataDir, { recursive: true, force: true });
-console.log(matches.length > 0 ? 'ERGEBNIS: OK' : 'ERGEBNIS: NICHTS ANGEKOMMEN');
-process.exit(matches.length > 0 ? 0 : 1);
+console.log(ok ? 'ERGEBNIS: OK' : 'ERGEBNIS: FEHLGESCHLAGEN');
+process.exit(ok ? 0 : 1);

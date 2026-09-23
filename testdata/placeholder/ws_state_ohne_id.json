@@ -1,0 +1,313 @@
+{
+  "type": "message",
+  "channel": "autodarts.matches",
+  "topic": "11111111-2222-3333-4444-555555555555.state",
+  "data": {
+    "variant": "X01",
+    "type": "Local",
+    "createdAt": "2026-09-20T18:00:00.000Z",
+    "finished": true,
+    "settings": {
+      "baseScore": 501,
+      "inMode": "Straight",
+      "outMode": "Double",
+      "legs": 3,
+      "sets": 1
+    },
+    "set": 0,
+    "leg": 1,
+    "round": 5,
+    "player": 1,
+    "winner": 1,
+    "gameWinner": 1,
+    "players": [
+      {
+        "id": "p-a",
+        "index": 0,
+        "name": "Tim",
+        "userId": "",
+        "cpuPPR": null
+      },
+      {
+        "id": "p-b",
+        "index": 1,
+        "name": "Jürgen Müller",
+        "userId": "",
+        "cpuPPR": null
+      }
+    ],
+    "scores": [
+      {
+        "legs": 1,
+        "sets": 0
+      },
+      {
+        "legs": 2,
+        "sets": 1
+      }
+    ],
+    "gameScores": [
+      101,
+      0
+    ],
+    "turns": [
+      {
+        "playerId": "p-b",
+        "round": 1,
+        "score": 60,
+        "points": 441,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-a",
+        "round": 1,
+        "score": 100,
+        "points": 401,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-b",
+        "round": 2,
+        "score": 140,
+        "points": 301,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-a",
+        "round": 2,
+        "score": 100,
+        "points": 301,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-b",
+        "round": 3,
+        "score": 140,
+        "points": 161,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-a",
+        "round": 3,
+        "score": 100,
+        "points": 201,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-b",
+        "round": 4,
+        "score": 0,
+        "points": 161,
+        "busted": true,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "T20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-a",
+        "round": 4,
+        "score": 100,
+        "points": 101,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          },
+          {
+            "segment": {
+              "name": "20"
+            }
+          }
+        ]
+      },
+      {
+        "playerId": "p-b",
+        "round": 5,
+        "score": 161,
+        "points": 0,
+        "busted": false,
+        "throws": [
+          {
+            "segment": {
+              "name": "T20"
+            }
+          },
+          {
+            "segment": {
+              "name": "T17"
+            }
+          },
+          {
+            "segment": {
+              "name": "Bull"
+            }
+          }
+        ]
+      }
+    ],
+    "stats": [
+      {
+        "matchStats": {
+          "average": 108.8,
+          "first9Average": 116.8,
+          "checkoutPercent": 0.5,
+          "checkoutsHit": 1,
+          "checkouts": 2,
+          "dartsThrown": 23,
+          "plus100": 7,
+          "plus140": 2,
+          "total180": 1
+        },
+        "legStats": {
+          "average": 100,
+          "first9Average": 100,
+          "dartsThrown": 12
+        }
+      },
+      {
+        "matchStats": {
+          "average": 83.4,
+          "first9Average": 80,
+          "checkoutPercent": 0.5,
+          "checkoutsHit": 1,
+          "checkouts": 2,
+          "dartsThrown": 24,
+          "plus100": 3,
+          "plus140": 2,
+          "total180": 0
+        },
+        "legStats": {
+          "average": 100.2,
+          "first9Average": 113.3,
+          "dartsThrown": 15,
+          "checkoutsHit": 1,
+          "checkouts": 1
+        }
+      }
+    ],
+    "gameFinished": true
+  }
+}

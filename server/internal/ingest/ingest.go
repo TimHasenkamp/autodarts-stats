@@ -177,6 +177,15 @@ func (s *Service) HandleEvent(ctx context.Context, boardID int64, ev Event) (Res
 	}
 
 	mc := mcFrom(matchID, boardID, playedAtStr)
+	// Autodarts meldet das Ende eines Legs ueber gameFinished, bevor der
+	// Leg-Zaehler weiterspringt. Diesen Stand direkt als Leg-Endstand sichern.
+	if st.LegFinished {
+		n, err := s.archiveLeg(ctx, tx, mc, st.Set, st.Leg, string(ev.Body), now)
+		if err != nil {
+			return res, err
+		}
+		res.LegsSaved += n
+	}
 	if st.Finished {
 		n, err := s.archiveLeg(ctx, tx, mc, st.Set, st.Leg, string(ev.Body), now)
 		if err != nil {

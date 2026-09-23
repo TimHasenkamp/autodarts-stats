@@ -4,7 +4,7 @@
 (() => {
   const DEFAULTS = {
     fetchPattern: 'autodarts\\.(com|io)/(gs|as|bs)/',
-    wsPattern: '',
+    wsPattern: 'autodarts\\.matches',
     excludePattern: '/users?/|/auth|login|token|keycloak',
     showOverlay: true,
     captureAll: false,
@@ -76,7 +76,7 @@
     diag.received++;
     const url = String(d.url || '');
     if (!cfg.captureAll) {
-      if (excludeRe && excludeRe.test(url)) {
+      if (d.kind === 'fetch' && excludeRe && excludeRe.test(url)) {
         diag.droppedExclude++;
         diag.lastDroppedUrl = url.slice(0, 200);
         reportDiag();

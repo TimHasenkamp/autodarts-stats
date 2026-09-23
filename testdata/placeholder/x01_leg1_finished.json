@@ -4,26 +4,253 @@
   "type": "Local",
   "createdAt": "2026-09-20T18:00:00.000Z",
   "finished": false,
-  "settings": {"baseScore": 501, "inMode": "Straight", "outMode": "Double", "legs": 3, "sets": 1},
-  "set": 1, "leg": 1, "round": 4, "player": 0,
-  "winner": -1, "gameWinner": 0,
+  "settings": {
+    "baseScore": 501,
+    "inMode": "Straight",
+    "outMode": "Double",
+    "legs": 3,
+    "sets": 1
+  },
+  "set": 0,
+  "leg": 0,
+  "round": 4,
+  "player": 0,
+  "winner": -1,
+  "gameWinner": 0,
   "players": [
-    {"id": "p-a", "index": 0, "name": "Tim", "userId": "", "cpuPPR": null},
-    {"id": "p-b", "index": 1, "name": "Jürgen Müller", "userId": "", "cpuPPR": null}
+    {
+      "id": "p-a",
+      "index": 0,
+      "name": "Tim",
+      "userId": "",
+      "cpuPPR": null
+    },
+    {
+      "id": "p-b",
+      "index": 1,
+      "name": "Jürgen Müller",
+      "userId": "",
+      "cpuPPR": null
+    }
   ],
-  "scores": [{"legs": 1, "sets": 0}, {"legs": 0, "sets": 0}],
-  "gameScores": [0, 261],
+  "scores": [
+    {
+      "legs": 1,
+      "sets": 0
+    },
+    {
+      "legs": 0,
+      "sets": 0
+    }
+  ],
+  "gameScores": [
+    0,
+    261
+  ],
   "turns": [
-    {"playerId": "p-a", "round": 1, "score": 180, "points": 321, "busted": false, "throws": [{"segment": {"name": "T20"}}, {"segment": {"name": "T20"}}, {"segment": {"name": "T20"}}]},
-    {"playerId": "p-b", "round": 1, "score": 60, "points": 441, "busted": false, "throws": [{"segment": {"name": "20"}}, {"segment": {"name": "20"}}, {"segment": {"name": "20"}}]},
-    {"playerId": "p-a", "round": 2, "score": 140, "points": 181, "busted": false, "throws": [{"segment": {"name": "T20"}}, {"segment": {"name": "T20"}}, {"segment": {"name": "20"}}]},
-    {"playerId": "p-b", "round": 2, "score": 100, "points": 341, "busted": false, "throws": [{"segment": {"name": "T20"}}, {"segment": {"name": "20"}}, {"segment": {"name": "20"}}]},
-    {"playerId": "p-a", "round": 3, "score": 81, "points": 100, "busted": false, "throws": [{"segment": {"name": "T20"}}, {"segment": {"name": "20"}}, {"segment": {"name": "1"}}]},
-    {"playerId": "p-b", "round": 3, "score": 80, "points": 261, "busted": false, "throws": [{"segment": {"name": "20"}}, {"segment": {"name": "20"}}, {"segment": {"name": "D20"}}]},
-    {"playerId": "p-a", "round": 4, "score": 100, "points": 0, "busted": false, "throws": [{"segment": {"name": "T20"}}, {"segment": {"name": "D20"}}]}
+    {
+      "playerId": "p-a",
+      "round": 1,
+      "score": 180,
+      "points": 321,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "T20"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-b",
+      "round": 1,
+      "score": 60,
+      "points": 441,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-a",
+      "round": 2,
+      "score": 140,
+      "points": 181,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-b",
+      "round": 2,
+      "score": 100,
+      "points": 341,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-a",
+      "round": 3,
+      "score": 81,
+      "points": 100,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "1"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-b",
+      "round": 3,
+      "score": 80,
+      "points": 261,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "20"
+          }
+        },
+        {
+          "segment": {
+            "name": "D20"
+          }
+        }
+      ]
+    },
+    {
+      "playerId": "p-a",
+      "round": 4,
+      "score": 100,
+      "points": 0,
+      "busted": false,
+      "throws": [
+        {
+          "segment": {
+            "name": "T20"
+          }
+        },
+        {
+          "segment": {
+            "name": "D20"
+          }
+        }
+      ]
+    }
   ],
   "stats": [
-    {"matchStats": {"average": 136.6, "first9Average": 133.7, "checkoutPercent": 1, "checkoutsHit": 1, "checkouts": 1, "dartsThrown": 11, "plus100": 3, "plus140": 2, "total180": 1}, "legStats": {"average": 136.6, "first9Average": 133.7, "dartsThrown": 11, "checkoutsHit": 1, "checkouts": 1}},
-    {"matchStats": {"average": 80, "first9Average": 80, "checkoutPercent": 0, "checkoutsHit": 0, "checkouts": 0, "dartsThrown": 9, "plus100": 1, "plus140": 0, "total180": 0}, "legStats": {"average": 80, "first9Average": 80, "dartsThrown": 9}}
-  ]
+    {
+      "matchStats": {
+        "average": 136.6,
+        "first9Average": 133.7,
+        "checkoutPercent": 1,
+        "checkoutsHit": 1,
+        "checkouts": 1,
+        "dartsThrown": 11,
+        "plus100": 3,
+        "plus140": 2,
+        "total180": 1
+      },
+      "legStats": {
+        "average": 136.6,
+        "first9Average": 133.7,
+        "dartsThrown": 11,
+        "checkoutsHit": 1,
+        "checkouts": 1
+      }
+    },
+    {
+      "matchStats": {
+        "average": 80,
+        "first9Average": 80,
+        "checkoutPercent": 0,
+        "checkoutsHit": 0,
+        "checkouts": 0,
+        "dartsThrown": 9,
+        "plus100": 1,
+        "plus140": 0,
+        "total180": 0
+      },
+      "legStats": {
+        "average": 80,
+        "first9Average": 80,
+        "dartsThrown": 9
+      }
+    }
+  ],
+  "gameFinished": true
 }

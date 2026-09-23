@@ -262,3 +262,92 @@ func TestHandleEventStringBody(t *testing.T) {
 		t.Fatalf("idempotenz verletzt: %d", n)
 	}
 }
+
+// wsEvent verpackt einen Matchzustand so, wie ihn der Autodarts-WebSocket
+// liefert: Huelle mit channel/topic, die Match-ID steckt nur im Topic.
+func wsEvent(t *testing.T, file, matchID string) Event {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(testdata, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inner map[string]any
+	if err := json.Unmarshal(raw, &inner); err != nil {
+		t.Fatal(err)
+	}
+	delete(inner, "id")
+	env, err := json.Marshal(map[string]any{
+		"type": "message", "channel": "autodarts.matches",
+		"topic": matchID + ".state", "data": inner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Die Extension reicht den Text roh weiter, also als JSON-String.
+	quoted, _ := json.Marshal(string(env))
+	return Event{Kind: "ws", URL: "wss://play.ws.autodarts.com/ms/v0/subscribe", Body: quoted}
+}
+
+// Echter Ablauf: einmal REST beim Laden, danach nur noch WebSocket.
+func TestFlussRestDannWebsocket(t *testing.T) {
+	svc, d, bid := setup(t)
+	ctx := context.Background()
+	const mid = "11111111-2222-3333-4444-555555555555"
+
+	if _, err := svc.HandleEvent(ctx, bid, ev(t, "x01_leg1_running.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"x01_leg1_finished.json", "x01_leg2_running.json", "x01_match_finished.json"} {
+		res, err := svc.HandleEvent(ctx, bid, wsEvent(t, f, mid))
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if !res.Recognized || res.MatchID != mid {
+			t.Fatalf("%s nicht erkannt: %+v", f, res)
+		}
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM matches`); n != 1 {
+		t.Fatalf("matches = %d (Match-ID aus dem Topic muss dasselbe Match treffen)", n)
+	}
+	if n := count(t, d, `SELECT finished FROM matches`); n != 1 {
+		t.Fatal("Match wurde nie als beendet erkannt")
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM match_legs`); n != 4 {
+		t.Fatalf("match_legs = %d, erwartet 4 (zwei Legs mal zwei Spieler)", n)
+	}
+	var legsWon, legsPlayed int
+	var avg float64
+	if err := d.QueryRow(`SELECT mp.legs_won, mp.legs_played, mp.average FROM match_players mp
+		JOIN players p ON p.id = mp.player_id WHERE p.normalized_name = 'juergen mueller'`).Scan(&legsWon, &legsPlayed, &avg); err != nil {
+		t.Fatal(err)
+	}
+	if legsWon != 2 || legsPlayed != 2 {
+		t.Errorf("Jürgen: legsWon=%d legsPlayed=%d", legsWon, legsPlayed)
+	}
+}
+
+// Das erste Leg muss archiviert werden, sobald gameFinished gemeldet wird,
+// auch wenn danach kein weiteres Leg mehr kommt.
+func TestErstesLegWirdSofortArchiviert(t *testing.T) {
+	svc, d, bid := setup(t)
+	ctx := context.Background()
+	if _, err := svc.HandleEvent(ctx, bid, ev(t, "x01_leg1_running.json")); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM match_legs`); n != 0 {
+		t.Fatalf("laufendes Leg darf noch nicht archiviert sein: %d", n)
+	}
+	res, err := svc.HandleEvent(ctx, bid, ev(t, "x01_leg1_finished.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.LegsSaved != 1 {
+		t.Fatalf("LegsSaved = %d", res.LegsSaved)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM match_legs`); n != 2 {
+		t.Fatalf("match_legs = %d, erwartet 2", n)
+	}
+	if n := count(t, d, `SELECT legs_played FROM match_players mp JOIN players p ON p.id = mp.player_id WHERE p.normalized_name='tim'`); n != 1 {
+		t.Fatalf("legs_played = %d", n)
+	}
+}
