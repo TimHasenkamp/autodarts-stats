@@ -1,0 +1,31 @@
+[Unit]
+Description=Your Darts (Autodarts Stats Tracker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autodarts
+Group=autodarts
+WorkingDirectory=/var/lib/autodarts-stats
+ExecStart=/usr/local/bin/autodarts-stats
+Restart=on-failure
+RestartSec=5
+Environment=PORT=8080
+Environment=DB_PATH=/var/lib/autodarts-stats/autodarts-stats.db
+# Geheimnisse besser in eine Datei mit chmod 600:
+EnvironmentFile=-/etc/autodarts-stats.env
+# EnvironmentFile-Inhalt:
+#   ADMIN_PASSWORD=...
+#   SESSION_SECRET=...   (optional, sonst bei jedem Start neu -> Admin-Logins verfallen)
+#   TRUST_PROXY=1        (wenn hinter Caddy/nginx)
+
+# Haertung
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/autodarts-stats
+
+[Install]
+WantedBy=multi-user.target

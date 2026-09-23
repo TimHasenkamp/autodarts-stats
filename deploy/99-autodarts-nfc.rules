@@ -1,0 +1,4 @@
+# udev-Regel, damit der Agent den Tastatur-Leser ohne root oeffnen darf.
+# Vendor/Product-ID mit `lsusb` ermitteln und eintragen, dann:
+#   sudo cp deploy/99-autodarts-nfc.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+SUBSYSTEM=="input", ATTRS{idVendor}=="ffff", ATTRS{idProduct}=="0035", MODE="0660", GROUP="input", SYMLINK+="input/autodarts-nfc"

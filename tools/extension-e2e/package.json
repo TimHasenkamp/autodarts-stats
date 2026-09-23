@@ -1,0 +1,7 @@
+{
+  "name": "your-darts-extension-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "./run.sh" },
+  "devDependencies": { "playwright": "^1.63.0" }
+}

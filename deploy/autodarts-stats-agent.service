@@ -1,0 +1,24 @@
+# Agent auf dem Linux-Client am Board. Als User-Unit installieren, damit
+# notify-send die Desktop-Session erreicht:
+#   mkdir -p ~/.config/systemd/user && cp deploy/autodarts-stats-agent.service ~/.config/systemd/user/
+#   systemctl --user enable --now autodarts-stats-agent
+[Unit]
+Description=Your Darts Chip-Agent
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/autodarts-stats-agent
+Restart=always
+RestartSec=3
+EnvironmentFile=%h/.config/autodarts-stats-agent.env
+# Inhalt von ~/.config/autodarts-stats-agent.env:
+#   BACKEND_URL=https://darts.example.org
+#   API_KEY=adb_...
+#   READER=evdev:/dev/input/by-id/usb-XXXX-event-kbd     (Tastatur-Leser)
+#   READER=pcsc                                          (ACR122U u.a., Build mit -tags pcsc)
+#   NOTIFY=auto
+#   TYPE_CMD=xdotool type --delay 30                     (optional, tippt den Namen ins fokussierte Feld; Wayland: wtype)
+
+[Install]
+WantedBy=default.target

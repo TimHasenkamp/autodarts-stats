@@ -1,0 +1,8 @@
+web/node_modules
+web/.svelte-kit
+server/internal/web/dist/*
+!server/internal/web/dist/.gitkeep
+*.db
+*.db-*
+autodarts-stats
+*.zip

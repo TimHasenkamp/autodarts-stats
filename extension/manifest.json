@@ -1,0 +1,72 @@
+{
+  "manifest_version": 3,
+  "name": "Your Darts Collector",
+  "version": "0.4.0",
+  "description": "Leitet Match-Daten von play.autodarts.io an einen eigenen Stats-Server weiter.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://play.autodarts.com/*",
+    "https://play.autodarts.io/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "bg.js",
+    "scripts": [
+      "bg.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://play.autodarts.com/*",
+        "https://play.autodarts.io/*"
+      ],
+      "js": [
+        "hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://play.autodarts.com/*",
+        "https://play.autodarts.io/*"
+      ],
+      "js": [
+        "relay.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Your Darts",
+    "default_popup": "options.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "autodarts-stats@local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ],
+        "optional": []
+      }
+    }
+  }
+}

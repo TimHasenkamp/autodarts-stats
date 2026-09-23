@@ -1,0 +1,13 @@
+/autodarts-stats
+/autodarts-stats-agent
+/autodarts-stats-extension.zip
+/your-darts-paket.zip
+/dist-bin/
+/.pkg/
+*.db
+*.db-wal
+*.db-shm
+node_modules/
+web/.svelte-kit
+server/internal/web/dist/*
+!server/internal/web/dist/.gitkeep

@@ -1,0 +1,16 @@
+services:
+  autodarts-stats:
+    build: ..
+    image: autodarts-stats:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMIN_PASSWORD: "bitte-aendern"
+      # SESSION_SECRET: "langer-zufaelliger-string"
+      # TRUST_PROXY: "1"
+    volumes:
+      - autodarts-data:/data
+
+volumes:
+  autodarts-data:

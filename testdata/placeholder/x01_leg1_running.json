@@ -1,0 +1,24 @@
+{
+  "id": "11111111-2222-3333-4444-555555555555",
+  "variant": "X01",
+  "type": "Local",
+  "createdAt": "2026-09-20T18:00:00.000Z",
+  "finished": false,
+  "settings": {"baseScore": 501, "inMode": "Straight", "outMode": "Double", "legs": 3, "sets": 1},
+  "set": 1, "leg": 1, "round": 2, "player": 1,
+  "winner": -1, "gameWinner": -1,
+  "players": [
+    {"id": "p-a", "index": 0, "name": "Tim", "userId": "", "cpuPPR": null},
+    {"id": "p-b", "index": 1, "name": "Jürgen Müller", "userId": "", "cpuPPR": null}
+  ],
+  "scores": [{"legs": 0, "sets": 0}, {"legs": 0, "sets": 0}],
+  "gameScores": [321, 441],
+  "turns": [
+    {"playerId": "p-a", "round": 1, "score": 180, "points": 321, "busted": false, "throws": [{"segment": {"name": "T20", "number": 20, "multiplier": 3}}, {"segment": {"name": "T20", "number": 20, "multiplier": 3}}, {"segment": {"name": "T20", "number": 20, "multiplier": 3}}]},
+    {"playerId": "p-b", "round": 1, "score": 60, "points": 441, "busted": false, "throws": [{"segment": {"name": "20", "number": 20, "multiplier": 1}}, {"segment": {"name": "20", "number": 20, "multiplier": 1}}, {"segment": {"name": "20", "number": 20, "multiplier": 1}}]}
+  ],
+  "stats": [
+    {"matchStats": {"average": 180, "first9Average": 180, "checkoutPercent": 0, "checkoutsHit": 0, "checkouts": 0, "dartsThrown": 3, "plus100": 1, "plus140": 1, "total180": 1}, "legStats": {"average": 180, "first9Average": 180, "dartsThrown": 3}},
+    {"matchStats": {"average": 60, "first9Average": 60, "checkoutPercent": 0, "checkoutsHit": 0, "checkouts": 0, "dartsThrown": 3, "plus100": 0, "plus140": 0, "total180": 0}, "legStats": {"average": 60, "first9Average": 60, "dartsThrown": 3}}
+  ]
+}
