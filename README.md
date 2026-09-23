@@ -17,6 +17,13 @@ docs/        Checklisten und Notizen (docs/mvp-test-checkliste.md)
 Für einen Rechner ohne Go/Node: `make package` erzeugt `your-darts-paket.zip` mit fertigen
 Linux-Binaries (amd64 + arm64), Extension und Doku. Anleitung darin: `START-HIER.md`.
 
+Beide Pakete liegen fertig im Repository und werden bei Änderungen neu gebaut und mit committet:
+
+| Datei | Inhalt | Erzeugt mit |
+|---|---|---|
+| `autodarts-stats-extension.zip` | nur die Extension, für Firefox und zum Signieren | `make extension-zip` |
+| `your-darts-paket.zip` | Komplettpaket inkl. Binaries und Doku | `make package` |
+
 ## Schnellstart
 
 ```sh

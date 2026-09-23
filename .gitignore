@@ -1,7 +1,5 @@
 /autodarts-stats
 /autodarts-stats-agent
-/autodarts-stats-extension.zip
-/your-darts-paket.zip
 /dist-bin/
 /.pkg/
 *.db
@@ -11,3 +9,8 @@ node_modules/
 web/.svelte-kit
 server/internal/web/dist/*
 !server/internal/web/dist/.gitkeep
+
+# Die fertigen Pakete werden bewusst mitversioniert, damit sie ohne Build
+# verteilt werden koennen (siehe README, Abschnitt Verteilung):
+#   autodarts-stats-extension.zip   Extension
+#   your-darts-paket.zip            Komplettpaket mit Binaries
