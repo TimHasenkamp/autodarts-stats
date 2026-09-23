@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, ApiError } from '$lib/api';
+  import { api, ApiError, type MatchSummary } from '$lib/api';
   import { dateTime } from '$lib/format';
 
   interface AdminPlayer { id: number; display_name: string; normalized_name: string; autodarts_user_id?: string; aliases: string[]; protected: boolean; chips: number; matches: number; legs: number }
@@ -31,6 +31,7 @@
   let pendingAssign: Record<string, number> = $state({});
   let manualCheckin = $state({ player_id: 0, board_id: 0 });
   let newPlayer = $state({ display_name: '', protected: true });
+  let matches: MatchSummary[] = $state([]);
 
   let filtered = $derived(players.filter((p) => p.display_name.toLowerCase().includes(q.toLowerCase()) || p.aliases.some((a) => a.includes(q.toLowerCase()))));
 
@@ -55,6 +56,7 @@
         api.get<Checkin[]>('/api/admin/checkins'),
         api.get<Pending[]>('/api/admin/pending'),
       ]);
+      matches = await api.get<MatchSummary[]>('/api/matches?limit=50');
       players = pl; boards = bo; unparsed = un; chips = ch.chips; unknownChips = ch.unknown; checkins = ci; pending = pe;
       for (const p of pe) {
         const k = `${p.match_id}/${p.player_index}`;
@@ -171,6 +173,11 @@
       info = `${r.recognized} von ${r.total} unerkannten Events jetzt erkannt.`;
       await loadAll();
     });
+  }
+  async function delMatch(m: MatchSummary) {
+    const wer = m.players.map((p) => p.display_name).join(' vs ') || 'ohne Spieler';
+    if (!confirm(`Match vom ${dateTime(m.played_at)} (${wer}) endgültig löschen? Die Rohdaten gehen mit verloren.`)) return;
+    await guard(async () => { await api.del(`/api/admin/matches/${m.match_id}`); await loadAll(); });
   }
   async function clearUnparsed() {
     await guard(async () => { await api.del('/api/admin/unparsed'); await loadAll(); });
@@ -370,6 +377,37 @@
     {:else}
       <p class="muted">Keine Spieler.</p>
     {/each}
+  </div>
+
+  <h2>Matches <span class="muted">({matches.length})</span></h2>
+  <div class="card">
+    <p class="muted">
+      Ein Match, das dauerhaft auf „läuft“ steht, hat nie einen Endstand bekommen. Das lässt sich
+      nachträglich nicht reparieren, weil die fehlenden Stände nirgends gespeichert sind. Solche
+      Matches hier löschen.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Datum</th><th style="text-align:left">Variante</th><th style="text-align:left">Spieler</th><th>Legs</th><th style="text-align:left">Status</th><th></th></tr></thead>
+        <tbody>
+          {#each matches as m (m.match_id)}
+            <tr>
+              <td><a href="/match/{m.match_id}">{dateTime(m.played_at)}</a></td>
+              <td style="text-align:left">{m.variant || '–'}</td>
+              <td style="text-align:left">{m.players.map((p) => p.display_name).join(' vs ') || '–'}</td>
+              <td>{m.players.map((p) => p.legs_won).join(':') || '–'}</td>
+              <td style="text-align:left">{#if m.finished}beendet{:else}<span class="pill">läuft</span>{/if}</td>
+              <td>
+                <a href="/api/admin/matches/{m.match_id}/raw" target="_blank" class="pill">Rohdaten</a>
+                <button class="danger" onclick={() => delMatch(m)}>Löschen</button>
+              </td>
+            </tr>
+          {:else}
+            <tr><td colspan="6" class="muted">Noch keine Matches erfasst.</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <h2>Unerkannte Events <span class="muted">({unparsed.length})</span></h2>
