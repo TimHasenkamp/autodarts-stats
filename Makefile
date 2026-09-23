@@ -1,17 +1,31 @@
 BINARY   ?= autodarts-stats
+# Architekturen fuers Paket. Standard nur amd64 (normaler PC).
+# Fuer einen Raspberry Pi o.ae.:  make package ARCHES="amd64 arm64"
+ARCHES   ?= amd64
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST      = server/internal/web/dist
 
-.PHONY: all build build-web build-server build-agent test test-extension extension-zip package clean docker run
+.PHONY: all build build-web build-server build-agent dist-placeholder test test-extension extension-zip package clean docker run
 
 all: build
 
 ## Frontend bauen (Ausgabe landet im Go-Embed-Verzeichnis)
+## Der Adapter leert $(DIST), deshalb wird der Platzhalter danach neu angelegt.
+## Ohne ihn scheitert go build in einem frischen Klon am //go:embed.
 build-web:
 	cd web && npm ci && npm run build
+	@$(MAKE) --no-print-directory dist-placeholder
+
+dist-placeholder:
+	@mkdir -p $(DIST)
+	@printf '%s\n' \
+	  'Platzhalter. Hier landet das gebaute Dashboard (make build-web);' \
+	  'es wird per //go:embed ins Binary gepackt. Die Datei muss im Repository' \
+	  'bleiben, sonst scheitert go build an "pattern all:dist: no matching files found".' \
+	  > $(DIST)/.gitkeep
 
 ## Nur das Go-Binary (Frontend muss vorher gebaut sein oder wird als Platzhalter eingebettet)
-build-server:
+build-server: dist-placeholder
 	cd server && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../$(BINARY) ./cmd/autodarts-stats
 
 ## Agent fuer den Board-Client (NFC-Leser). Mit PC/SC-Leser: make build-agent TAGS=pcsc
@@ -36,9 +50,10 @@ extension-zip:
 	cd extension && zip -r ../autodarts-stats-extension.zip . -x '*.DS_Store'
 
 ## Komplettpaket fuer Rechner ohne Go/Node (Transport per USB/Nextcloud)
+## Standard: nur linux/amd64. Mehr Architekturen: make package ARCHES="amd64 arm64"
 package: build-web extension-zip
 	rm -rf dist-bin your-darts-paket.zip .pkg
-	cd server && for a in amd64 arm64; do \
+	cd server && for a in $(ARCHES); do \
 	  CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags "-s -w" -o ../dist-bin/autodarts-stats-linux-$$a ./cmd/autodarts-stats; \
 	  CGO_ENABLED=0 GOOS=linux GOARCH=$$a go build -trimpath -ldflags "-s -w" -o ../dist-bin/autodarts-stats-agent-linux-$$a ./cmd/autodarts-stats-agent; \
 	done

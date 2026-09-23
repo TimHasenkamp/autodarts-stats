@@ -1,0 +1,3 @@
+Platzhalter. Hier landet das gebaute Dashboard (make build-web);
+es wird per //go:embed ins Binary gepackt. Die Datei muss im Repository
+bleiben, sonst scheitert go build an "pattern all:dist: no matching files found".

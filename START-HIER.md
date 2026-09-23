@@ -2,24 +2,26 @@
 
 Alles fertig gebaut. Auf dem Rechner werden weder Go noch Node gebraucht.
 
-## 1. Auspacken und Binary wählen
+## 1. Auspacken und Binary an den Platz legen
 
 ```sh
 mkdir -p ~/your-darts && cd ~/your-darts
 # (Inhalt dieses Pakets hierher entpacken)
-uname -m        # x86_64 -> amd64,  aarch64 -> arm64
+uname -m        # muss x86_64 ausgeben
 ```
 
-Passendes Binary an den Platz kopieren und ausführbar machen:
-
 ```sh
-cp bin/autodarts-stats-linux-amd64 autodarts-stats          # oder -arm64
+cp bin/autodarts-stats-linux-amd64 autodarts-stats
 chmod +x autodarts-stats
 ```
 
 Das ist alles, was du für den Test brauchst. Den zweiten Binary im Ordner `bin/`,
 den Chip-Agenten, lässt du vorerst liegen. Er wird erst mit einem NFC-Leser gebraucht,
-siehe ganz unten.
+siehe weiter unten.
+
+Gibt `uname -m` stattdessen `aarch64` aus, ist es ein ARM-Rechner wie ein Raspberry Pi.
+Dann passt dieses Paket nicht. Ein passendes erzeugt man auf dem Entwicklungsrechner mit
+`make package ARCHES=arm64`.
 
 ## 2. Board anlegen und Server starten
 
@@ -121,6 +123,40 @@ Welche Leser unterstützt werden und wie der Agent als Dienst läuft, steht in `
 Den Ablauf kannst du auch ganz ohne Agent testen: im Admin unter „Check-ins“ gibt es
 „Manuell einchecken“.
 
+## Selbst bauen statt Paket
+
+Das Paket gibt es, damit auf dem Board-Rechner nichts installiert werden muss. Wer dort direkt
+bauen will, braucht zwei Dinge:
+
+| Werkzeug | Mindestversion | Wofür |
+|---|---|---|
+| Go | 1.22 | Server und Chip-Agent |
+| Node.js mit npm | 20 | Dashboard |
+
+Installieren, je nach System:
+
+```sh
+sudo pacman -S go nodejs npm          # Arch, Omarchy
+sudo apt install golang-go nodejs npm # Debian, Ubuntu
+go version && node --version          # prüfen
+```
+
+Bei Debian und Ubuntu ist das Go aus den Paketquellen oft zu alt. Dann die aktuelle Version von
+go.dev nehmen. Anschließend im Projektverzeichnis:
+
+```sh
+make build        # Dashboard + Server + Chip-Agent
+```
+
+Das Ergebnis sind `./autodarts-stats` und `./autodarts-stats-agent`, danach weiter bei Schritt 2.
+Der erste Durchlauf lädt die Abhängigkeiten von Go und npm, dafür wird Internet gebraucht.
+
+Nur den Server zu bauen genügt **nicht**: Das Dashboard wird beim Bauen ins Binary eingebettet und
+liegt nicht im Repository. Ohne vorheriges `make build-web` liefert der Server nur die Meldung
+„Frontend nicht gebaut“. `make build` erledigt beides in der richtigen Reihenfolge.
+
+Ein eigenes Paket zum Weitergeben erzeugt `make package`, standardmäßig für amd64.
+
 ## Dashboard vom Handy
 
 `http://<IP-des-Board-Rechners>:8080` im gleichen WLAN. Die IP zeigt `ip addr`.
@@ -130,7 +166,7 @@ Am Handy einmal separat im Admin anmelden, das Cookie gilt pro Adresse.
 
 | Pfad | Inhalt |
 |---|---|
-| `bin/` | Server und Chip-Agent für amd64 und arm64 |
+| `bin/` | Server und Chip-Agent für linux/amd64 |
 | `extension/` | Browser-Extension als Ordner, für Chrome |
 | `autodarts-stats-extension.zip` | dieselbe Extension gepackt, für Firefox und zum Signieren |
 | `docs/` | Test-Checkliste |

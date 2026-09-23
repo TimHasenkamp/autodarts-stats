@@ -24,6 +24,9 @@ Beide Pakete liegen fertig im Repository und werden bei Änderungen neu gebaut u
 | `autodarts-stats-extension.zip` | nur die Extension, für Firefox und zum Signieren | `make extension-zip` |
 | `your-darts-paket.zip` | Komplettpaket inkl. Binaries und Doku | `make package` |
 
+`make package` baut standardmäßig nur `linux/amd64` (rund 7,6 MB). Weitere Architekturen über
+`make package ARCHES="amd64 arm64"`.
+
 ## Schnellstart
 
 ```sh
