@@ -252,7 +252,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 		f.Sort = "name"
 		f.Order = "asc"
 	}
-	rows, err := s.Stats.Leaderboard(r.Context(), f)
+	rows, err := s.Stats.Players(r.Context(), f)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

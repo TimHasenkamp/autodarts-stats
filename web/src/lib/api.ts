@@ -50,6 +50,7 @@ export interface PlayerRow {
   legs_won: number;
   legs_played: number;
   darts: number;
+  open_matches: number;
   last_played_at?: string;
 }
 

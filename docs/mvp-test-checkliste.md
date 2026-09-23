@@ -113,6 +113,27 @@ dauerhaft läuft, gibt es drei Wege:
 
 Für den ersten Test reicht das temporäre Add-on. Das Neuladen dauert zwanzig Sekunden.
 
+## Wann Zahlen erscheinen
+
+Die Erfassung läuft fortlaufend, gewertet wird aber gestaffelt:
+
+| Zeitpunkt | Sichtbar |
+|---|---|
+| Match läuft, erstes Leg | Spieler stehen unter „Spieler“ mit dem Hinweis „läuft“, noch ohne Zahlen |
+| Leg beendet | Average, 180er und Checkouts des Legs zählen |
+| Match beendet | Sieg und Match zählen, der Spieler erscheint in der Rangliste |
+
+Im Admin stehen Spieler sofort, dort werden alle angelegten Spieler gezeigt, auch ohne Wertung.
+Die Rangliste verlangt zusätzlich mindestens 5 Matches, einstellbar über „Min. Matches“.
+
+## Wo die Daten liegen
+
+Die Datenbank ist eine gewöhnliche SQLite-Datei, die beim ersten Start angelegt wird. Sie steckt
+**nicht** im Binary, nur das Dashboard ist eingebaut. Ohne `DB_PATH` heißt sie `autodarts-stats.db`
+und liegt im Verzeichnis, aus dem der Server gestartet wurde. Startest du ihn aus einem anderen
+Verzeichnis, arbeitet er mit einer neuen, leeren Datenbank. Dabei entstehen drei Dateien:
+`.db`, `.db-wal` und `.db-shm`. Zum Sichern oder Umziehen den Server stoppen und alle drei kopieren.
+
 ## Typische Stolpersteine
 
 - Läuft schon ein alter Server auf Port 8080, startet der neue nicht und beendet sich mit

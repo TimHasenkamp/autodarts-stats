@@ -343,3 +343,45 @@ func TestCheckinFlow(t *testing.T) {
 		t.Fatalf("protect: %d", code)
 	}
 }
+
+// Ein laufendes Match darf die Spieler nicht unsichtbar machen: unter
+// /api/players erscheinen sie, in der Rangliste noch nicht.
+func TestRunningMatchPlayersVisible(t *testing.T) {
+	e := newEnv(t)
+	e.ingest(t, "x01_leg1_running.json")
+
+	code, body := e.do(t, "GET", "/api/players", nil, nil)
+	var players []stats.PlayerRow
+	json.Unmarshal(body, &players)
+	if code != 200 || len(players) != 2 {
+		t.Fatalf("players: %d %s", code, body)
+	}
+	for _, p := range players {
+		if p.Matches != 0 || p.OpenMatches != 1 {
+			t.Errorf("%s: matches=%d open=%d", p.DisplayName, p.Matches, p.OpenMatches)
+		}
+	}
+	code, body = e.do(t, "GET", "/api/leaderboard?min_matches=0", nil, nil)
+	var lb []stats.PlayerRow
+	json.Unmarshal(body, &lb)
+	if code != 200 || len(lb) != 0 {
+		t.Fatalf("Rangliste darf laufende Matches nicht werten: %s", body)
+	}
+	// Profil muss trotzdem abrufbar sein.
+	code, _ = e.do(t, "GET", "/api/players/1", nil, nil)
+	if code != 200 {
+		t.Fatalf("Profil: %d", code)
+	}
+	// Nach Matchende zaehlt es regulaer.
+	e.ingest(t, "x01_leg1_finished.json", "x01_leg2_running.json", "x01_match_finished.json")
+	code, body = e.do(t, "GET", "/api/leaderboard?min_matches=0&sort=average", nil, nil)
+	json.Unmarshal(body, &lb)
+	if code != 200 || len(lb) != 2 {
+		t.Fatalf("nach Matchende: %s", body)
+	}
+	for _, p := range lb {
+		if p.Matches != 1 || p.OpenMatches != 0 || p.LegsPlayed != 2 {
+			t.Errorf("%s: matches=%d open=%d legs=%d", p.DisplayName, p.Matches, p.OpenMatches, p.LegsPlayed)
+		}
+	}
+}

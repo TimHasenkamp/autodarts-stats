@@ -29,6 +29,15 @@
   {#if profile.aliases.length > 1}
     <p class="muted">Auch als: {profile.aliases.join(', ')}</p>
   {/if}
+  {#if p.open_matches > 0}
+    <p class="muted">
+      {p.open_matches === 1 ? 'Ein Match läuft noch' : `${p.open_matches} Matches laufen noch`} und
+      zählt hier erst nach dem Ende.
+    </p>
+  {/if}
+  {#if p.matches === 0 && p.legs_played === 0}
+    <p class="muted">Noch keine abgeschlossenen Legs. Die Zahlen bleiben leer, bis ein Leg fertig ist.</p>
+  {/if}
   <FilterBar bind:filter variants={meta?.variants ?? []} />
 
   <div class="card stats-grid">

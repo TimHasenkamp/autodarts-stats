@@ -42,7 +42,10 @@ type PlayerRow struct {
 	LegsWon         int      `json:"legs_won"`
 	LegsPlayed      int      `json:"legs_played"`
 	Darts           int      `json:"darts"`
-	LastPlayedAt    string   `json:"last_played_at,omitempty"`
+	// OpenMatches sind noch nicht beendete Matches. Sie zaehlen nicht in die
+	// Wertung, erklaeren aber, warum ein Spieler ohne Zahlen auftaucht.
+	OpenMatches  int    `json:"open_matches"`
+	LastPlayedAt string `json:"last_played_at,omitempty"`
 }
 
 type Service struct{ DB *sql.DB }
@@ -85,6 +88,12 @@ WITH mp AS (
   WHERE mt.finished = 1 AND %[1]s
   GROUP BY mp.player_id
 ),
+op AS (
+  SELECT mp.player_id, COUNT(*) AS open_matches
+  FROM match_players mp JOIN matches mt ON mt.id = mp.match_id
+  WHERE mt.finished = 0 AND %[1]s
+  GROUP BY mp.player_id
+),
 lg AS (
   SELECT l.player_id,
          COUNT(*) AS legs_played,
@@ -106,17 +115,24 @@ SELECT p.id, p.display_name,
        COALESCE(lg.legs_played,0), COALESCE(lg.legs_won,0), lg.points, COALESCE(lg.sdarts,0), COALESCE(lg.darts,0),
        lg.f9points, COALESCE(lg.f9darts,0),
        COALESCE(lg.c180,0), COALESCE(lg.c140,0), COALESCE(lg.c100,0),
-       COALESCE(lg.co_hit,0), COALESCE(lg.co_att,0), COALESCE(lg.hco,0)
+       COALESCE(lg.co_hit,0), COALESCE(lg.co_att,0), COALESCE(lg.hco,0),
+       COALESCE(op.open_matches,0)
 FROM players p
 LEFT JOIN mp ON mp.player_id = p.id
+LEFT JOIN op ON op.player_id = p.id
 LEFT JOIN lg ON lg.player_id = p.id
 WHERE %[2]s
 `
 
 func (s *Service) rows(ctx context.Context, f Filter, extraWhere string, extraArgs ...any) ([]PlayerRow, error) {
 	clause, args := filterClause(f)
-	q := strings.Replace(strings.Replace(rowsQuery, "%[1]s", clause, 2), "%[2]s", extraWhere, 1)
-	all := append(append(append([]any{}, args...), args...), extraArgs...)
+	n := strings.Count(rowsQuery, "%[1]s")
+	q := strings.Replace(strings.ReplaceAll(rowsQuery, "%[1]s", clause), "%[2]s", extraWhere, 1)
+	all := []any{}
+	for i := 0; i < n; i++ {
+		all = append(all, args...)
+	}
+	all = append(all, extraArgs...)
 	rs, err := s.DB.QueryContext(ctx, q, all...)
 	if err != nil {
 		return nil, err
@@ -130,7 +146,7 @@ func (s *Service) rows(ctx context.Context, f Filter, extraWhere string, extraAr
 		var sdarts, f9darts, coHit, coAtt int
 		if err := rs.Scan(&r.PlayerID, &r.DisplayName, &r.Matches, &r.Wins, &bestAvg, &coRateAvg, &r.LastPlayedAt,
 			&r.LegsPlayed, &r.LegsWon, &points, &sdarts, &r.Darts, &f9points, &f9darts,
-			&r.Count180, &r.Count140Plus, &r.Count100Plus, &coHit, &coAtt, &r.HighestCheckout); err != nil {
+			&r.Count180, &r.Count140Plus, &r.Count100Plus, &coHit, &coAtt, &r.HighestCheckout, &r.OpenMatches); err != nil {
 			return nil, err
 		}
 		if r.Matches > 0 {
@@ -158,6 +174,17 @@ func (s *Service) rows(ctx context.Context, f Filter, extraWhere string, extraAr
 		out = append(out, r)
 	}
 	return out, rs.Err()
+}
+
+// Players listet alle bekannten Spieler, auch solche ohne gewertete Matches
+// (z.B. waehrend ein Match noch laeuft). Fuer die Rangliste gilt Leaderboard.
+func (s *Service) Players(ctx context.Context, f Filter) ([]PlayerRow, error) {
+	rows, err := s.rows(ctx, f, "1=1")
+	if err != nil {
+		return nil, err
+	}
+	sortRows(rows, f.Sort, f.Order)
+	return rows, nil
 }
 
 func (s *Service) Leaderboard(ctx context.Context, f Filter) ([]PlayerRow, error) {
