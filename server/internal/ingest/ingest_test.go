@@ -351,3 +351,54 @@ func TestErstesLegWirdSofortArchiviert(t *testing.T) {
 		t.Fatalf("legs_played = %d", n)
 	}
 }
+
+// Die echte Antwort eines frisch gestarteten Solo-Matches muss sauber
+// durchlaufen: Spieler anlegen, Match als laufend fuehren, kein Leg werten.
+func TestEchteAntwortDurchIngest(t *testing.T) {
+	svc, d, bid := setup(t)
+	ctx := context.Background()
+	raw, err := os.ReadFile(filepath.Join(testdata, "..", "match_x01_initial.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted, _ := json.Marshal(string(raw)) // so schickt es die Extension
+	res, err := svc.HandleEvent(ctx, bid, Event{
+		Kind: "fetch",
+		URL:  "https://api.autodarts.com/gs/v0/matches/01a0ce02-394e-7b82-8540-3c49e9d8faa4",
+		Body: quoted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Recognized || res.Finished || res.LegsSaved != 0 {
+		t.Fatalf("Ergebnis: %+v", res)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM matches WHERE finished = 0`); n != 1 {
+		t.Fatalf("laufendes Match: %d", n)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM match_legs`); n != 0 {
+		t.Fatalf("es darf noch kein Leg gewertet sein: %d", n)
+	}
+	var name, norm, uid string
+	if err := d.QueryRow(`SELECT display_name, normalized_name, COALESCE(autodarts_user_id,'') FROM players`).Scan(&name, &norm, &uid); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Testspieler" || norm != "testspieler" || uid != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("Spieler: %q %q %q", name, norm, uid)
+	}
+	var variant string
+	var set, leg int
+	if err := d.QueryRow(`SELECT variant, last_set, last_leg FROM matches`).Scan(&variant, &set, &leg); err != nil {
+		t.Fatal(err)
+	}
+	if variant != "X01" || set != 1 || leg != 1 {
+		t.Fatalf("Match: variant=%q set=%d leg=%d", variant, set, leg)
+	}
+	// Kein Doppelmatch bei erneutem Eintreffen desselben Stands.
+	if _, err := svc.HandleEvent(ctx, bid, Event{Kind: "fetch", Body: quoted}); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM matches`); n != 1 {
+		t.Fatalf("matches = %d", n)
+	}
+}

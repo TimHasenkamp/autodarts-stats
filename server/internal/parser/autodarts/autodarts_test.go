@@ -149,3 +149,61 @@ func TestErstesUndZweitesLegUnterscheidbar(t *testing.T) {
 		t.Fatalf("erwartet 1 und 2, bekommen %d und %d", a.Leg, b.Leg)
 	}
 }
+
+// Echte Antwort von api.autodarts.com/gs/v0/matches/{id}, Kennungen ersetzt.
+// Haelt die geprueften Eigenschaften des Formats fest.
+func TestEchteAntwortInitial(t *testing.T) {
+	st, err := New().Parse("fetch", "https://api.autodarts.com/gs/v0/matches/01a0ce02-394e-7b82-8540-3c49e9d8faa4", load(t, "match_x01_initial.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.MatchID != "01a0ce02-394e-7b82-8540-3c49e9d8faa4" || st.Variant != "X01" || !st.HasScoring {
+		t.Fatalf("Kopf: id=%q variant=%q scoring=%v", st.MatchID, st.Variant, st.HasScoring)
+	}
+	// Autodarts zaehlt ab 1, ein frisches Match steht auf set=1, leg=1.
+	if st.Set != 1 || st.Leg != 1 {
+		t.Errorf("set=%d leg=%d, erwartet 1 und 1", st.Set, st.Leg)
+	}
+	if st.Finished || st.LegFinished || st.Winner != -1 || st.LegWinner != -1 {
+		t.Errorf("frisches Match darf nicht beendet sein: %+v", st)
+	}
+	if len(st.Players) != 1 {
+		t.Fatalf("Spieler: %d, erwartet 1 (Solo-Match)", len(st.Players))
+	}
+	p := st.Players[0]
+	if p.Name != "Testspieler" || p.UserID != "00000000-0000-4000-8000-000000000001" || p.IsBot {
+		t.Errorf("Spieler: %+v", p)
+	}
+	if st.StartedAt.IsZero() {
+		t.Error("createdAt wurde nicht gelesen")
+	}
+	if len(st.LegStats) != 1 || st.LegStats[0].Darts != 0 || st.LegStats[0].Count180 != 0 {
+		t.Errorf("LegStats: %+v", st.LegStats)
+	}
+}
+
+// Die Klassen less60/plus60/plus100/plus140/plus170/total180 sind disjunkt
+// und muessen kumulativ verrechnet werden.
+func TestStatsKlassenKumulativ(t *testing.T) {
+	got := fromFields(rawStatsFields{
+		Plus100:  ptr(3),
+		Plus140:  ptr(2),
+		Plus170:  ptr(1),
+		Total180: ptr(4),
+		Score:    ptr(1234),
+	})
+	if got.Count180 != 4 {
+		t.Errorf("180er: %d", got.Count180)
+	}
+	if got.Count140Plus != 7 {
+		t.Errorf("140+: %d, erwartet 2+1+4", got.Count140Plus)
+	}
+	if got.Count100Plus != 10 {
+		t.Errorf("100+: %d, erwartet 3+2+1+4", got.Count100Plus)
+	}
+	if got.Points != 1234 {
+		t.Errorf("Punkte: %d", got.Points)
+	}
+}
+
+func ptr(i int) *int { return &i }

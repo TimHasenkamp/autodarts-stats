@@ -16,7 +16,7 @@
 //
 // Ebenfalls im JS der App bestaetigt:
 //
-//   - set und leg zaehlen ab 0. Ein frisches Match hat set:0, leg:0.
+//   - set und leg zaehlen ab 1. Ein frisches Match hat set:1, leg:1.
 //   - gameFinished meldet das Ende eines Legs, finished das Ende des Matches.
 //   - gameWinner ist der Leg-Gewinner, winner der Match-Gewinner, -1 = offen.
 //   - Der WebSocket verpackt alles als {type, channel, topic, data}. Beim
@@ -24,10 +24,20 @@
 //   - turns tragen playerId (nicht den Index), players tragen id, name,
 //     userId und bei Bots cpuPPR.
 //
-// TODO(format): Die genaue Form von stats[] und turns[] im Live-Payload ist
-// weiterhin ungeprueft, dafuer braucht es echte Responses unter testdata/.
-// Der Parser ist bewusst tolerant: fehlende Felder fuehren zu Nullwerten,
-// nicht zu Fehlern.
+// Gegen eine echte Antwort geprueft, siehe testdata/match_x01_initial.json:
+//
+//   - stats[] hat pro Spieler matchStats, setStats und legStats.
+//   - Darin sind less60, plus60, plus100, plus140, plus170 und total180
+//     disjunkte Klassen (unter 60, 60-99, 100-139, 140-169, 170-179, genau
+//     180), keine kumulativen Zaehler.
+//   - score ist die Summe der erzielten Punkte, dartsThrown die Zahl der
+//     Darts. Beide haben Vorrang vor der eigenen Zaehlung aus turns.
+//   - turns tragen throws als Array. Die laufende Runde hat ein leeres Array
+//     und darf nicht als volle Aufnahme zaehlen.
+//
+// TODO(format): Ein Stand mitten im Leg, ein Leg-Ende und ein Matchende
+// fehlen noch als echte Beispiele. Der Parser ist bewusst tolerant: fehlende
+// Felder fuehren zu Nullwerten, nicht zu Fehlern.
 package autodarts
 
 import (
@@ -115,6 +125,10 @@ type rawStatsEntry struct {
 	LegStats   *rawStatsFields `json:"legStats"`
 }
 
+// rawStatsFields bildet die Stats der Autodarts-Antwort ab.
+// less60, plus60, plus100, plus140, plus170 und total180 sind disjunkte
+// Klassen (unter 60, 60-99, 100-139, 140-169, 170-179, genau 180). Intern
+// wird kumulativ gezaehlt, deshalb werden sie unten aufaddiert.
 type rawStatsFields struct {
 	Average         *float64 `json:"average"`
 	First9Average   *float64 `json:"first9Average"`
@@ -123,8 +137,12 @@ type rawStatsFields struct {
 	Checkouts       *int     `json:"checkouts"`
 	CheckoutPoints  *int     `json:"checkoutPoints"`
 	DartsThrown     *int     `json:"dartsThrown"`
+	Score           *int     `json:"score"`
+	Less60          *int     `json:"less60"`
+	Plus60          *int     `json:"plus60"`
 	Plus100         *int     `json:"plus100"`
 	Plus140         *int     `json:"plus140"`
+	Plus170         *int     `json:"plus170"`
 	Total180        *int     `json:"total180"`
 }
 
@@ -160,17 +178,17 @@ func (p Parser) Parse(kind, url string, body []byte) (*parser.State, error) {
 }
 
 func convert(m *rawMatch) *parser.State {
-	// set und leg zaehlt Autodarts ab 0 (ein frisches Match hat set:0, leg:0).
-	// Intern wird ab 1 gezaehlt, deshalb +1. Wichtig: nicht auf 1 begrenzen,
-	// sonst sind das erste und das zweite Leg nicht unterscheidbar und der
-	// Leg-Endstand wird nie archiviert.
+	// set und leg zaehlt Autodarts ab 1 (gegen eine echte Antwort geprueft,
+	// siehe testdata/match_x01_initial.json). Der Wert wird unveraendert
+	// uebernommen. Wichtig: nicht auf 1 hochsetzen, sonst waeren ein Stand
+	// mit 0 und einer mit 1 nicht unterscheidbar.
 	st := &parser.State{
 		MatchID:     m.ID,
 		Variant:     m.Variant,
 		Settings:    m.Settings,
 		Finished:    m.Finished,
-		Set:         m.Set + 1,
-		Leg:         m.Leg + 1,
+		Set:         m.Set,
+		Leg:         m.Leg,
 		Winner:      -1,
 		LegWinner:   -1,
 		LegFinished: m.GameFinished,
@@ -227,8 +245,11 @@ func convert(m *rawMatch) *parser.State {
 			continue
 		}
 		legHasTurns = true
+		// Die laufende Runde hat noch keine Wuerfe. Sie darf nicht als volle
+		// Aufnahme zaehlen, sonst ist der Average zu niedrig. Nur wenn das
+		// Feld ganz fehlt, wird von drei Darts ausgegangen.
 		darts := len(t.Throws)
-		if darts == 0 {
+		if t.Throws == nil && (t.Score != 0 || t.Busted) {
 			darts = 3
 		}
 		score := t.Score
@@ -307,8 +328,13 @@ func convert(m *rawMatch) *parser.State {
 			if lf.First9Avg != nil {
 				legStats[i].First9Avg = lf.First9Avg
 			}
-			if lf.Darts > 0 && legStats[i].Darts == 0 {
+			// Autodarts liefert dartsThrown und score selbst. Diese Werte
+			// haben Vorrang vor der eigenen Zaehlung aus den Runden.
+			if lf.Darts > 0 {
 				legStats[i].Darts = lf.Darts
+			}
+			if lf.Points > 0 {
+				legStats[i].Points = lf.Points
 			}
 			if lf.CheckoutAttempts > 0 {
 				legStats[i].CheckoutAttempts = lf.CheckoutAttempts
@@ -355,14 +381,18 @@ func fromFields(f rawStatsFields) parser.PlayerStats {
 	if f.DartsThrown != nil {
 		ps.Darts = *f.DartsThrown
 	}
-	if f.Total180 != nil {
-		ps.Count180 = *f.Total180
+	if f.Score != nil {
+		ps.Points = *f.Score
 	}
-	if f.Plus140 != nil {
-		ps.Count140Plus = *f.Plus140
+	// Disjunkte Klassen zu kumulativen Zaehlern aufaddieren.
+	n := func(p *int) int {
+		if p == nil {
+			return 0
+		}
+		return *p
 	}
-	if f.Plus100 != nil {
-		ps.Count100Plus = *f.Plus100
-	}
+	ps.Count180 = n(f.Total180)
+	ps.Count140Plus = n(f.Plus140) + n(f.Plus170) + ps.Count180
+	ps.Count100Plus = n(f.Plus100) + ps.Count140Plus
 	return ps
 }

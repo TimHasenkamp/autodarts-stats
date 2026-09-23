@@ -39,8 +39,9 @@ Siehe README.md für Aufbau, Befehle und API. Hier nur, was fürs Weiterarbeiten
 - WebSocket-Protokoll: Client sendet `{type:"subscribe", channel, topic}`, Server antwortet mit
   `{type, channel, topic, data}`. Topics: `<matchId>.state`, `<matchId>.events`, ...
   Beim `.state`-Topic steckt die Match-ID **nur im Topic**, nicht im `data`.
-- `set` und `leg` zaehlen **ab 0**; intern wird ab 1 gezaehlt (Parser addiert 1). Nicht auf 1 clampen,
-  sonst sind erstes und zweites Leg ununterscheidbar und es wird nie ein Leg-Endstand archiviert.
+- `set` und `leg` zaehlen **ab 1** (gegen echte Antwort geprueft). Der Wert wird unveraendert uebernommen.
+- Stats-Klassen `less60/plus60/plus100/plus140/plus170/total180` sind **disjunkt**, nicht kumulativ.
+  `score` und `dartsThrown` aus den Stats haben Vorrang vor eigener Zaehlung aus `turns`.
 - `gameFinished` = Leg zu Ende, `finished` = Match zu Ende. Der Ingest archiviert das Leg bei
   `gameFinished`, nicht erst beim Weiterspringen des Leg-Zaehlers.
 - Nach dem Laden der Seite kommen fast alle Aktualisierungen per WebSocket, nicht per REST.

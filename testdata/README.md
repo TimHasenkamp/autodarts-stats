@@ -1,5 +1,10 @@
 # testdata
 
+`match_x01_initial.json` ist eine **echte** Antwort von
+`GET https://api.autodarts.com/gs/v0/matches/{id}` (frisch gestartetes Solo-Match, 170 Punkte).
+Benutzerkennungen, Board-ID, Name und Avatar-URL wurden ersetzt, die Struktur ist unveraendert.
+Die Parser-Tests pruefen dagegen. Weitere echte Antworten koennen einfach daneben gelegt werden.
+
 Hier kommen echte Responses aus den DevTools von play.autodarts.io hin.
 
 ## Was ich brauche

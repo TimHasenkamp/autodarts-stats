@@ -11,8 +11,8 @@
     "legs": 3,
     "sets": 1
   },
-  "set": 0,
-  "leg": 0,
+  "set": 1,
+  "leg": 1,
   "round": 4,
   "player": 0,
   "winner": -1,

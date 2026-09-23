@@ -1,0 +1,198 @@
+{
+  "id": "01a0ce02-394e-7b82-8540-3c49e9d8faa4",
+  "createdAt": "2026-09-23T11:24:15.267935298Z",
+  "host": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Testspieler",
+    "avatarUrl": "https://example.invalid/avatar.png",
+    "country": "de",
+    "average": 36.92902458366376,
+    "membership": "free"
+  },
+  "legs": 3,
+  "variant": "X01",
+  "settings": {
+    "baseScore": 170,
+    "inMode": "Straight",
+    "outMode": "Double",
+    "bullMode": "25/50",
+    "maxRounds": 50
+  },
+  "players": [
+    {
+      "id": "01a0ce02-397f-73c0-81ff-18081d1b341c",
+      "index": 0,
+      "user": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Testspieler",
+        "avatarUrl": "https://example.invalid/avatar.png",
+        "country": "de",
+        "average": 36.92902458366376,
+        "membership": "free"
+      },
+      "userId": "00000000-0000-4000-8000-000000000001",
+      "name": "Testspieler",
+      "avatarUrl": "https://example.invalid/avatar.png",
+      "hostId": "00000000-0000-4000-8000-000000000001",
+      "host": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "Testspieler",
+        "avatarUrl": "https://example.invalid/avatar.png",
+        "country": "de",
+        "average": 36.92902458366376,
+        "membership": "free"
+      },
+      "boardId": "00000000-0000-4000-8000-0000000000b0",
+      "boardName": "ya",
+      "boardType": "vantage",
+      "cpuPPR": null,
+      "cpuSpeed": null,
+      "tournamentPlayerId": null,
+      "isPending": false,
+      "refereeState": ""
+    }
+  ],
+  "scores": [
+    {
+      "sets": 0,
+      "legs": 0
+    }
+  ],
+  "type": "Local",
+  "hasReferee": false,
+  "set": 1,
+  "leg": 1,
+  "finished": false,
+  "winner": -1,
+  "turns": [
+    {
+      "id": "01a0ce02-5823-7e28-b8e7-f82f579252d6",
+      "createdAt": "2026-09-23T11:24:15.267928095Z",
+      "finishedAt": "0001-01-01T00:00:00Z",
+      "round": 1,
+      "turn": 0,
+      "playerId": "01a0ce02-397f-73c0-81ff-18081d1b341c",
+      "score": 0,
+      "points": 0,
+      "marks": null,
+      "busted": false,
+      "throws": []
+    }
+  ],
+  "round": 1,
+  "player": 0,
+  "turnScore": 0,
+  "turnBusted": false,
+  "gameScores": [
+    170
+  ],
+  "gameFinished": false,
+  "gameWinner": -1,
+  "stats": [
+    {
+      "matchStats": {
+        "dartsThrown": 0,
+        "average": 0,
+        "first9Average": 0,
+        "checkouts": 0,
+        "checkoutPoints": 0,
+        "less60": 0,
+        "plus60": 0,
+        "plus100": 0,
+        "plus140": 0,
+        "plus170": 0,
+        "total180": 0,
+        "score": 0,
+        "first9Score": 0,
+        "averageUntil170": 0,
+        "dartsUntil170": 0,
+        "scoreUntil170": 0,
+        "checkoutsHit": 0,
+        "checkoutPercent": 0,
+        "checkoutPointsAverage": 0
+      },
+      "setStats": null,
+      "legStats": {
+        "dartsThrown": 0,
+        "average": 0,
+        "first9Average": 0,
+        "checkouts": 0,
+        "checkoutPoints": 0,
+        "less60": 0,
+        "plus60": 0,
+        "plus100": 0,
+        "plus140": 0,
+        "plus170": 0,
+        "total180": 0,
+        "score": 0,
+        "first9Score": 0,
+        "averageUntil170": 0,
+        "dartsUntil170": 0,
+        "scoreUntil170": 0,
+        "checkoutsHit": 0,
+        "checkoutPercent": 0,
+        "checkoutPointsAverage": 0
+      }
+    }
+  ],
+  "state": {
+    "checkoutGuide": [
+      {
+        "name": "T20",
+        "number": 20,
+        "bed": "Triple",
+        "multiplier": 3
+      },
+      {
+        "name": "T20",
+        "number": 20,
+        "bed": "Triple",
+        "multiplier": 3
+      },
+      {
+        "name": "Bull",
+        "number": 25,
+        "bed": "Double",
+        "multiplier": 2
+      }
+    ],
+    "checkoutGuides": [
+      [
+        {
+          "name": "T20",
+          "number": 20,
+          "bed": "Triple",
+          "multiplier": 3
+        },
+        {
+          "name": "T20",
+          "number": 20,
+          "bed": "Triple",
+          "multiplier": 3
+        },
+        {
+          "name": "Bull",
+          "number": 25,
+          "bed": "Double",
+          "multiplier": 2
+        }
+      ]
+    ]
+  },
+  "chalkboards": [
+    {
+      "rows": [
+        {
+          "round": 0,
+          "points": 0,
+          "score": 170,
+          "isScoreStruck": false,
+          "isPointsStruck": false
+        }
+      ]
+    }
+  ],
+  "skippedPlayers": [
+    false
+  ]
+}
