@@ -188,7 +188,7 @@ oder trägt ein Ergebnis ein. Beamer-Ansicht unter `/turniere/{id}/beamer`. Turn
   und rollt es per SSH auf den Server aus (`deploy/production/docker-compose.yml`, optional mit Caddy für TLS).
   Pull Requests werden nur getestet. Ohne Repository-Variable `DEPLOY_HOST` wird nur gebaut.
 * `agent.yml`: Ein Tag `v1.2.3` baut den Chip-Agenten als `.deb` (mit PC/SC), hängt es an ein GitHub Release und
-  aktualisiert das signierte APT-Repository auf GitHub Pages. Installation am Board:
+  aktualisiert das signierte APT-Repository auf GitHub Pages. Installation am Board (ausführlich: `docs/agent.md`):
 
   ```sh
   curl -fsSL https://timhasenkamp.github.io/autodarts-stats/your-darts.gpg | sudo tee /usr/share/keyrings/your-darts.gpg >/dev/null
