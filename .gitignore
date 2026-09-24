@@ -8,9 +8,14 @@
 node_modules/
 web/.svelte-kit
 server/internal/web/dist/*
+/dist/
+# Schreibt der Deploy-Workflow mit den Secrets, nie einchecken:
+deploy/production/.env
 !server/internal/web/dist/.gitkeep
 
 # Die fertigen Pakete werden bewusst mitversioniert, damit sie ohne Build
 # verteilt werden koennen (siehe README, Abschnitt Verteilung):
 #   autodarts-stats-extension.zip   Extension
 #   your-darts-paket.zip            Komplettpaket mit Binaries
+# Private Signierschluessel nie einchecken
+*-SECRET.asc

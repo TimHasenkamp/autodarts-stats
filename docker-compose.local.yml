@@ -1,0 +1,23 @@
+# Lokaler Test unter Windows/Mac/Linux mit Docker Desktop.
+#
+#   docker compose -f docker-compose.local.yml up --build     (starten, Strg+C beendet)
+#   docker compose -f docker-compose.local.yml down           (stoppen, Daten bleiben)
+#   docker compose -f docker-compose.local.yml down -v        (stoppen und Daten löschen)
+#
+# Dashboard: http://localhost:8080  ·  Admin-Passwort: admin
+# Nicht für den Internetbetrieb gedacht (dafür deploy/docker-compose.yml + TLS-Proxy).
+services:
+  your-darts:
+    build: .
+    image: your-darts:local
+    ports:
+      - "8080:8080"
+    environment:
+      ADMIN_PASSWORD: "admin"
+      # Fest, damit der Admin-Login einen Neustart überlebt.
+      SESSION_SECRET: "nur-fuer-lokale-tests"
+    volumes:
+      - your-darts-local:/data
+
+volumes:
+  your-darts-local:

@@ -31,6 +31,9 @@ import (
 	"autodarts-stats/internal/reader"
 )
 
+// version wird beim Paketbau gesetzt (-ldflags "-X main.version=1.2.3").
+var version = "dev"
+
 type checkinResp struct {
 	DisplayName string `json:"display_name"`
 	GameName    string `json:"game_name"`
@@ -53,7 +56,12 @@ func main() {
 	notify := flag.String("notify", env("NOTIFY", "auto"), "Benachrichtigung: auto | notify-send | none")
 	typeCmd := flag.String("type-cmd", env("TYPE_CMD", ""), "Befehl, der den Spielnamen tippt (Name wird als letztes Argument angehaengt)")
 	debounce := flag.Duration("debounce", 3*time.Second, "gleicher Chip innerhalb dieser Zeit wird ignoriert")
+	showVersion := flag.Bool("version", false, "Version ausgeben")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	if *backend == "" || *apiKey == "" {
 		fmt.Fprintln(os.Stderr, "BACKEND_URL und API_KEY sind Pflicht")
@@ -77,7 +85,7 @@ func main() {
 	if err := ping(ctx, client, *backend, *apiKey); err != nil {
 		log.Printf("WARNUNG: Backend nicht erreichbar: %v", err)
 	} else {
-		log.Printf("verbunden mit %s, Leser %s", *backend, *readerSpec)
+		log.Printf("Agent %s verbunden mit %s, Leser %s", version, *backend, *readerSpec)
 	}
 
 	var lastUID string

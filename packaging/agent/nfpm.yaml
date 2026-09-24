@@ -1,0 +1,52 @@
+# Debian-Paket fuer den Chip-Agenten. Gebaut in .github/workflows/agent.yml:
+#   VERSION=1.2.3 nfpm package -p deb -f packaging/agent/nfpm.yaml -t dist/
+name: your-darts-agent
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: utils
+priority: optional
+maintainer: your admins <info@your-admins.de>
+description: |
+  Chip-Agent fuer Your Darts.
+  Liest NFC-Chips am Dartboard (Tastatur-Leser oder PC/SC), stempelt den
+  Spieler beim Your-Darts-Server ein und zeigt den Spielnamen fuer Autodarts an.
+vendor: your admins
+homepage: https://github.com/TimHasenkamp/autodarts-stats
+license: Proprietary
+
+depends:
+  - libpcsclite1
+recommends:
+  - pcscd
+  - libnotify-bin
+suggests:
+  - xdotool
+
+contents:
+  - src: dist/autodarts-stats-agent
+    dst: /usr/bin/autodarts-stats-agent
+    file_info:
+      mode: 0755
+  - src: packaging/agent/autodarts-stats-agent.service
+    dst: /usr/lib/systemd/user/autodarts-stats-agent.service
+    file_info:
+      mode: 0644
+  - src: packaging/agent/agent.env.example
+    dst: /usr/share/your-darts-agent/agent.env.example
+    file_info:
+      mode: 0644
+  # Nur Vorlage: Vendor/Product-ID des Lesers eintragen und nach
+  # /etc/udev/rules.d/ kopieren (siehe README im Paket).
+  - src: deploy/99-autodarts-nfc.rules
+    dst: /usr/share/your-darts-agent/99-autodarts-nfc.rules
+    file_info:
+      mode: 0644
+  - src: packaging/agent/README
+    dst: /usr/share/doc/your-darts-agent/README
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: packaging/agent/postinst.sh

@@ -1,0 +1,153 @@
+# Chip-Agent als Debian-Paket: bei jedem Tag v1.2.3
+#  1. Agent bauen (mit PC/SC-Unterstuetzung) und als .deb verpacken
+#  2. GitHub Release mit dem .deb anlegen
+#  3. Signiertes APT-Repository auf GitHub Pages aktualisieren
+#
+# Repository-Secret: APT_GPG_PRIVATE_KEY (ASCII-armored, ohne Passphrase)
+# GitHub Pages: Quelle "GitHub Actions"
+#
+# Installation auf dem Board-Rechner: siehe Seite des Repositorys (index.html unten).
+name: Agent
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Testbau ohne Veroeffentlichung, z.B. 0.0.0-test'
+        required: true
+        default: 0.0.0-test
+
+permissions:
+  contents: read
+
+env:
+  NFPM_VERSION: v2.47.0
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpcsclite-dev
+      - name: Agent bauen
+        working-directory: server
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          go test ./internal/reader/...
+          CGO_ENABLED=1 go build -tags pcsc -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+            -o ../dist/autodarts-stats-agent ./cmd/autodarts-stats-agent
+          ../dist/autodarts-stats-agent -version
+      - name: Paket bauen
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$NFPM_VERSION"
+          nfpm package -p deb -f packaging/agent/nfpm.yaml -t dist/
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb
+          path: dist/*.deb
+
+  release:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb
+          path: dist
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/*.deb --repo "$GITHUB_REPOSITORY" --clobber
+
+  apt-repo:
+    needs: [package, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb
+          path: repo/pool/main/y/your-darts-agent
+      - name: GPG-Schluessel laden
+        env:
+          KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          printf '%s\n' "$KEY" | gpg --batch --import
+          echo "FPR=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_ENV"
+      - name: Repository erzeugen
+        working-directory: repo
+        run: |
+          mkdir -p dists/stable/main/binary-amd64
+          apt-ftparchive packages pool > dists/stable/main/binary-amd64/Packages
+          gzip -9k dists/stable/main/binary-amd64/Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="your admins" \
+            -o APT::FTPArchive::Release::Label="Your Darts" \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            -o APT::FTPArchive::Release::Components=main \
+            release dists/stable > dists/stable/Release
+          gpg --batch --yes --local-user "$FPR" --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --local-user "$FPR" --armor --detach-sign -o dists/stable/Release.gpg dists/stable/Release
+          gpg --export "$FPR" > your-darts.gpg
+          touch .nojekyll
+      - name: Startseite
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+        working-directory: repo
+        run: |
+          base="https://${GITHUB_REPOSITORY_OWNER,,}.github.io/${GITHUB_REPOSITORY#*/}"
+          cat > index.html <<EOF
+          <!doctype html><html lang="de"><head><meta charset="utf-8"><title>Your Darts Agent</title>
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <style>body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#0f2a47}
+          h1{font-family:monospace}pre{background:#f1f4f8;padding:14px 16px;border-radius:8px;overflow-x:auto}</style></head>
+          <body><h1>Your Darts Agent</h1><p>APT-Repository fuer den Chip-Agenten, aktuelle Version <b>$VERSION</b> (Debian/Ubuntu, x86_64).</p>
+          <h2>Einmalig einrichten</h2>
+          <pre>curl -fsSL $base/your-darts.gpg | sudo tee /usr/share/keyrings/your-darts.gpg &gt;/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/your-darts.gpg] $base stable main" | sudo tee /etc/apt/sources.list.d/your-darts.list
+          sudo apt update
+          sudo apt install your-darts-agent</pre>
+          <h2>Updates</h2><pre>sudo apt update &amp;&amp; sudo apt upgrade</pre>
+          <p>Einrichtung danach: <code>/usr/share/doc/your-darts-agent/README</code></p></body></html>
+          EOF
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: repo
+
+  pages:
+    needs: apt-repo
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5

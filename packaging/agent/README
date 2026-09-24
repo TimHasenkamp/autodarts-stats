@@ -1,0 +1,26 @@
+Your Darts Chip-Agent
+=====================
+
+Einrichtung (als der Benutzer, der am Board angemeldet ist):
+
+  mkdir -p ~/.config
+  cp /usr/share/your-darts-agent/agent.env.example ~/.config/autodarts-stats-agent.env
+  nano ~/.config/autodarts-stats-agent.env
+  systemctl --user enable --now autodarts-stats-agent
+  journalctl --user -u autodarts-stats-agent -f      # Log ansehen
+
+API_KEY: im Your-Darts-Admin unter "Boards" anlegen.
+
+PC/SC-Leser (z.B. ACR122U): READER=pcsc, Dienst pcscd muss laufen
+  sudo systemctl enable --now pcscd
+
+Tastatur-Leser (USB-HID): damit der Agent ohne root lesen darf,
+  lsusb                                    # Vendor:Product-ID ablesen
+  sudo cp /usr/share/your-darts-agent/99-autodarts-nfc.rules /etc/udev/rules.d/
+  sudo nano /etc/udev/rules.d/99-autodarts-nfc.rules   # IDs eintragen
+  sudo udevadm control --reload && sudo udevadm trigger
+  sudo usermod -aG input $USER             # danach neu anmelden
+  READER=evdev:/dev/input/autodarts-nfc
+
+Updates kommen ueber apt (sudo apt update && sudo apt upgrade).
+Version: autodarts-stats-agent -version

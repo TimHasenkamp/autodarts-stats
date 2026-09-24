@@ -35,6 +35,9 @@ ADMIN_PASSWORD=geheim ./autodarts-stats board add "Wohnzimmer"   # API-Key notie
 ADMIN_PASSWORD=geheim ./autodarts-stats                          # Server auf :8080
 ```
 
+Unter Windows (oder ohne Go/Node) lokal mit Docker Desktop: `docker compose -f docker-compose.local.yml up --build`,
+dann http://localhost:8080 (Admin-Passwort `admin`), Board im Admin anlegen.
+
 Dann `make extension-zip` bzw. den Ordner `extension/` als entpackte Extension laden
 (Chrome: `chrome://extensions` → Entwicklermodus → „Entpackte Erweiterung laden“;
 Firefox ab 140: `about:debugging` → „Temporäres Add-on laden“ → `manifest.json`, überlebt aber
@@ -156,6 +159,7 @@ GET /api/leaderboard?sort=average|wins|win_rate|count_180|checkout|highest_check
                      &order=desc|asc&from=YYYY-MM-DD&to=YYYY-MM-DD&variant=X01&min_matches=5
 GET /api/players                 GET /api/players/{id}?from=&to=&variant=
 GET /api/h2h?a={id}&b={id}       GET /api/matches?limit=30      GET /api/matches/{id}
+GET /api/tournaments             GET /api/tournaments/{id}      GET /api/players/{id}/tournaments
 ```
 
 Board (Bearer API-Key): `POST /api/checkin {"uid"}` und `GET /api/checkins`.
@@ -164,8 +168,40 @@ Admin (Cookie-Session nach `POST /api/admin/login {"password"}`): Spieler anlege
 Aliase, löschen, Boards, Chips, Check-ins, Freigabe-Queue (`GET /api/admin/pending`,
 `POST /api/admin/pending/{match}/{index}`), Slots umhängen (`POST /api/admin/matches/{match}/slots/{index}`),
 unerkannte Events, `POST /api/admin/reprocess`.
+Turniere: `POST /api/admin/tournaments`, `PUT|DELETE /api/admin/tournaments/{id}`, `.../start`, `.../redraw`,
+`POST|DELETE .../results/{key}` (`{"match_id"}` oder `{"winner_id","legs1","legs2"}`), `GET .../candidates/{key}`.
+
+## Turniere
+
+K.-o.-System für die lokalen Spieler, angelegt vom Admin unter „Turniere“. Zufällige Auslosung, Freilose bei
+ungerader Teilnehmerzahl, Spielregeln pro Runde, optional Spiel um Platz 3 und Lucky-Loser-Runde: Wer vor der
+gewählten Einstiegsrunde verliert, spielt dort weiter; der Sieger trifft in einem Zusatzspiel auf einen zugelosten
+Qualifikanten und zieht bei Sieg in den Hauptbaum ein. Ein beendetes Autodarts-Match wird automatisch zugeordnet,
+wenn genau diese Paarung gerade offen ist (und das Match danach begonnen hat); sonst ordnet der Admin von Hand zu
+oder trägt ein Ergebnis ein. Beamer-Ansicht unter `/turniere/{id}/beamer`. Turnierspiele zählen normal im Leaderboard.
 
 ## Deployment
+
+**Automatisch über GitHub Actions** (`.github/workflows/`):
+
+* `backend.yml`: Jeder Push auf `main` testet, baut das Docker-Image nach `ghcr.io/timhasenkamp/autodarts-stats`
+  und rollt es per SSH auf den Server aus (`deploy/production/docker-compose.yml`, optional mit Caddy für TLS).
+  Pull Requests werden nur getestet. Ohne Repository-Variable `DEPLOY_HOST` wird nur gebaut.
+* `agent.yml`: Ein Tag `v1.2.3` baut den Chip-Agenten als `.deb` (mit PC/SC), hängt es an ein GitHub Release und
+  aktualisiert das signierte APT-Repository auf GitHub Pages. Installation am Board:
+
+  ```sh
+  curl -fsSL https://timhasenkamp.github.io/autodarts-stats/your-darts.gpg | sudo tee /usr/share/keyrings/your-darts.gpg >/dev/null
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/your-darts.gpg] https://timhasenkamp.github.io/autodarts-stats stable main" | sudo tee /etc/apt/sources.list.d/your-darts.list
+  sudo apt update && sudo apt install your-darts-agent
+  ```
+
+Benötigte Secrets: `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `APT_GPG_PRIVATE_KEY`.
+Variablen: `DEPLOY_HOST`, `DEPLOY_USER`, optional `DOMAIN` (Healthcheck von außen), `DEPLOY_PATH`, `DEPLOY_PORT`.
+Passwort, Session-Secret und Domain stehen in `/opt/your-darts/.env` auf dem Server (Vorlage
+`deploy/production/.env.example`); das Deployment überschreibt sie nicht.
+
+**Von Hand:**
 
 * **Docker:** `docker build -t autodarts-stats .` bzw. `deploy/docker-compose.yml`. Daten liegen in `/data`.
 * **systemd:** `deploy/autodarts-stats.service`, Binary nach `/usr/local/bin`, Secrets in `/etc/autodarts-stats.env`.

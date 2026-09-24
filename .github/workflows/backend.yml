@@ -1,0 +1,154 @@
+# Backend + Dashboard: testen, Docker-Image nach ghcr.io, per SSH auf den Server.
+#
+# Push auf main  -> Tests, Image, Deployment
+# Pull Request   -> nur Tests
+# Tag v1.2.3     -> zusaetzlich Image-Tag 1.2.3 (kein Deployment)
+#
+# Repository-Variablen:  DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH (optional, /opt/your-darts),
+#                        DEPLOY_PORT (optional, 22), DOMAIN (optional, fuer den Healthcheck von aussen)
+# Repository-Secrets:    DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS
+# Auf dem Server:        DEPLOY_PATH/.env mit ADMIN_PASSWORD usw. (Vorlage deploy/production/.env.example)
+# Ohne DEPLOY_HOST wird nicht deployed (nur gebaut).
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Frontend pruefen
+        working-directory: web
+        run: npm ci && npm run check
+      - name: Go vet + Tests
+        working-directory: server
+        run: go vet ./... && go test ./...
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.DOMAIN != '' && format('https://{0}', vars.DOMAIN) || '' }}
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      SSH_HOST: ${{ vars.DEPLOY_HOST }}
+      SSH_USER: ${{ vars.DEPLOY_USER }}
+      SSH_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DIR: ${{ vars.DEPLOY_PATH || '/opt/your-darts' }}
+      IMAGE: ${{ needs.image.outputs.image }}:sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: SSH einrichten
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host server
+            HostName $SSH_HOST
+            User $SSH_USER
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Dateien kopieren
+        run: |
+          # Die .env mit ADMIN_PASSWORD usw. pflegst du selbst auf dem Server;
+          # sie wird hier weder gelesen noch ueberschrieben.
+          ssh server "test -f '$DIR/.env'" || {
+            echo "::error::$DIR/.env fehlt auf dem Server (Vorlage: deploy/production/.env.example)"; exit 1; }
+          scp deploy/production/docker-compose.yml deploy/production/Caddyfile "server:$DIR/"
+
+      - name: Starten
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # Kurzlebiges Token nur fuer diesen Pull, danach wieder abmelden.
+          printf '%s' "$TOKEN" | ssh server "docker login ghcr.io -u '$ACTOR' --password-stdin"
+          # IMAGE aus der Umgebung hat Vorrang vor der .env: genau dieser Commit wird gestartet.
+          ssh server "set -e; cd '$DIR'; export IMAGE='$IMAGE'; docker compose pull; docker compose up -d --remove-orphans; docker logout ghcr.io; docker image prune -f"
+
+      - name: Healthcheck
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: |
+          for _ in $(seq 1 20); do
+            if ssh server "curl -fsS http://127.0.0.1:8080/api/health || wget -qO- http://127.0.0.1:8080/api/health"; then
+              echo; echo "Backend laeuft (lokal auf dem Server)."
+              if [ -n "$DOMAIN" ]; then curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "https://$DOMAIN/api/health" && echo " https://$DOMAIN erreichbar"; fi
+              exit 0
+            fi
+            sleep 3
+          done
+          ssh server "cd '$DIR' && docker compose logs --tail 50 your-darts"
+          exit 1

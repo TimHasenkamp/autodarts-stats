@@ -1,0 +1,43 @@
+# Produktion auf dem Server. .github/workflows/backend.yml kopiert diese Datei
+# und das Caddyfile nach DEPLOY_PATH (Standard /opt/your-darts) und startet mit
+# IMAGE=<Image dieses Commits>. Die .env daneben pflegst du selbst auf dem
+# Server (Vorlage: .env.example), der Workflow fasst sie nicht an.
+# Von Hand ohne IMAGE gestartet, laeuft das Image :latest (Stand von main).
+services:
+  your-darts:
+    image: ${IMAGE:-ghcr.io/timhasenkamp/autodarts-stats:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD fehlt}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET fehlt}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+    # Nur lokal erreichbar; von aussen geht es ueber den Reverse-Proxy.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - data:/data
+
+  # Optional: TLS mit automatischem Let's-Encrypt-Zertifikat. Weglassen, wenn
+  # auf dem Server schon ein Reverse-Proxy (nginx, Caddy, Traefik) laeuft; der
+  # leitet dann auf 127.0.0.1:8080.
+  caddy:
+    image: caddy:2
+    profiles: [caddy]
+    restart: unless-stopped
+    depends_on: [your-darts]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
