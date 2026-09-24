@@ -1,0 +1,18 @@
+# nginx vor Your Darts (statt Caddy), z.B. /etc/nginx/sites-available/darts.your-admins.de.conf
+# Danach: ln -s ../sites-available/darts.your-admins.de.conf /etc/nginx/sites-enabled/
+#         nginx -t && systemctl reload nginx && certbot --nginx -d darts.your-admins.de
+server {
+    listen 80;
+    server_name darts.your-admins.de;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8010;   # HOST_PORT aus der .env
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # Die Extension schickt Match-Staende gebuendelt; nginx-Standard (1 MB) reicht nicht.
+        client_max_body_size 64m;
+    }
+}

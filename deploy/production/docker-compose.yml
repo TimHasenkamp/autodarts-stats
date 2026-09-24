@@ -13,14 +13,15 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET fehlt}
       TRUST_PROXY: ${TRUST_PROXY:-1}
     # Nur lokal erreichbar; von aussen geht es ueber den Reverse-Proxy.
+    # HOST_PORT in der .env, falls 8080 schon belegt ist.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${HOST_PORT:-8080}:8080"
     volumes:
       - data:/data
 
   # Optional: TLS mit automatischem Let's-Encrypt-Zertifikat. Weglassen, wenn
   # auf dem Server schon ein Reverse-Proxy (nginx, Caddy, Traefik) laeuft; der
-  # leitet dann auf 127.0.0.1:8080.
+  # leitet dann auf 127.0.0.1:HOST_PORT (deploy/production/nginx.conf.example).
   caddy:
     image: caddy:2
     profiles: [caddy]

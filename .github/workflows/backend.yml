@@ -124,6 +124,8 @@ jobs:
         run: |
           # Die .env mit ADMIN_PASSWORD usw. pflegst du selbst auf dem Server;
           # sie wird hier weder gelesen noch ueberschrieben.
+          ssh server true || {
+            echo "::error::SSH zu $SSH_USER@$SSH_HOST:$SSH_PORT fehlgeschlagen (DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS pruefen)"; exit 1; }
           ssh server "test -f '$DIR/.env'" || {
             echo "::error::$DIR/.env fehlt auf dem Server (Vorlage: deploy/production/.env.example)"; exit 1; }
           scp deploy/production/docker-compose.yml deploy/production/Caddyfile "server:$DIR/"
@@ -143,7 +145,8 @@ jobs:
           DOMAIN: ${{ vars.DOMAIN }}
         run: |
           for _ in $(seq 1 20); do
-            if ssh server "curl -fsS http://127.0.0.1:8080/api/health || wget -qO- http://127.0.0.1:8080/api/health"; then
+            # Port aus der laufenden Compose-Konfiguration (HOST_PORT in der .env).
+            if ssh server "cd '$DIR' && a=\$(IMAGE='$IMAGE' docker compose port your-darts 8080) && { curl -fsS http://\$a/api/health || wget -qO- http://\$a/api/health; }"; then
               echo; echo "Backend laeuft (lokal auf dem Server)."
               if [ -n "$DOMAIN" ]; then curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "https://$DOMAIN/api/health" && echo " https://$DOMAIN erreichbar"; fi
               exit 0
