@@ -203,6 +203,8 @@
     <button class="secondary" onclick={logout}>Abmelden</button>
   </div>
 
+  <p class="muted">Turniere werden unter <a href="/turniere">Turniere</a> angelegt und verwaltet (als Admin angemeldet).</p>
+
   <h2>Boards</h2>
   <div class="card">
     <form class="filters" onsubmit={(e) => { e.preventDefault(); createBoard(); }}>

@@ -30,6 +30,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
+  put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
   del: <T>(path: string) => request<T>('DELETE', path),
 };
 
@@ -155,4 +156,145 @@ export function qs(f: Record<string, string | number | undefined | null>): strin
   }
   const s = p.toString();
   return s ? '?' + s : '';
+}
+
+// ---- Turniere ----
+
+export interface Rule {
+  variant: string;
+  base_score: number;
+  first_to: number;
+}
+
+export interface Rules {
+  rounds: Rule[]; // [0] = Finale, [1] = Halbfinale, ...
+  lucky_loser: Rule;
+}
+
+export interface TournamentSummary {
+  id: number;
+  name: string;
+  status: 'draft' | 'running' | 'finished';
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+  players: number;
+  champion?: { player_id: number; display_name: string };
+}
+
+export interface TSide {
+  player_id?: number;
+  display_name?: string;
+  placeholder?: string;
+  legs?: number;
+  won: boolean;
+}
+
+export interface TMatch {
+  key: string;
+  no: number;
+  bracket: 'main' | 'll' | 'playin' | 'third';
+  round: number;
+  status: 'wait' | 'ready' | 'done' | 'walkover' | 'empty';
+  rule: Rule;
+  a: TSide;
+  b: TSide;
+  match_id?: number;
+  source?: 'auto' | 'link' | 'manual';
+  warning?: string;
+  target?: string;
+}
+
+export interface TRound {
+  name: string;
+  rule: Rule;
+  matches: TMatch[];
+}
+
+export interface Placement {
+  place: number;
+  label: string;
+  lucky_loser: boolean;
+  out: boolean;
+}
+
+export interface TParticipant extends Placement {
+  player_id: number;
+  display_name: string;
+}
+
+export interface TStatRow {
+  player_id: number;
+  display_name: string;
+  matches: number;
+  wins: number;
+  legs_won: number;
+  legs_lost: number;
+  average: number | null;
+  best_match_average: number | null;
+  count_180: number;
+  count_140plus: number;
+  count_100plus: number;
+  highest_checkout: number;
+}
+
+export interface TLeader {
+  player_id: number;
+  display_name: string;
+  value: number;
+}
+
+export interface TournamentView extends TournamentSummary {
+  third_place: boolean;
+  lucky_loser: boolean;
+  ll_entry: number;
+  ll_entry_name?: string;
+  rules: Rules;
+  round_names: string[];
+  main: TRound[];
+  lucky_rounds: TRound[];
+  playin?: TMatch;
+  third?: TMatch;
+  next: TMatch[];
+  standings: TParticipant[];
+  stats: {
+    rows: TStatRow[];
+    best_average: TLeader | null;
+    best_match_average: TLeader | null;
+    most_180: TLeader | null;
+    highest_checkout: TLeader | null;
+  } | null;
+}
+
+export interface TournamentInput {
+  name: string;
+  player_ids: number[];
+  new_names: string[];
+  third_place: boolean;
+  lucky_loser: boolean;
+  ll_entry: number;
+  rules: Rules;
+}
+
+export interface PlayerTournaments {
+  tournaments: (Placement & {
+    tournament_id: number;
+    name: string;
+    status: string;
+    started_at?: string;
+    players: number;
+    matches: number;
+    wins: number;
+  })[];
+  wins: number;
+  podium: number;
+}
+
+export interface Candidate {
+  match_id: number;
+  played_at: string;
+  variant: string;
+  score: string;
+  winner: string;
+  linked_to?: string;
 }

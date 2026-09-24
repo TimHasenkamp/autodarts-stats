@@ -20,6 +20,7 @@ import (
 	"autodarts-stats/internal/parser"
 	"autodarts-stats/internal/parser/autodarts"
 	"autodarts-stats/internal/stats"
+	"autodarts-stats/internal/tournament"
 	"autodarts-stats/internal/web"
 )
 
@@ -51,10 +52,12 @@ func main() {
 	defer d.Close()
 	parsers := []parser.Parser{autodarts.New()}
 	ing := ingest.New(d, parsers, cfg.MaxUnparsed)
+	tour := tournament.New(d)
+	ing.MatchFinished = tour.MatchFinished
 
 	switch cmd {
 	case "serve":
-		serve(cfg, ing)
+		serve(cfg, ing, tour)
 	case "reprocess":
 		n, err := ing.Reprocess(context.Background())
 		if err != nil {
@@ -120,9 +123,9 @@ func main() {
 	}
 }
 
-func serve(cfg config.Config, ing *ingest.Service) {
+func serve(cfg config.Config, ing *ingest.Service, tour *tournament.Service) {
 	srv := api.New(api.Options{
-		DB: ing.DB, Ingest: ing, Stats: stats.New(ing.DB),
+		DB: ing.DB, Ingest: ing, Stats: stats.New(ing.DB), Tournaments: tour,
 		AdminPassword: cfg.AdminPassword, SessionSecret: cfg.SessionSecret, TrustProxy: cfg.TrustProxy,
 		CheckinTTL: cfg.CheckinTTL, Static: web.Handler(),
 	})

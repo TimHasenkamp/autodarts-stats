@@ -54,6 +54,9 @@ type Service struct {
 	Parsers     []parser.Parser
 	MaxUnparsed int
 	Now         func() time.Time
+	// MatchFinished laeuft in der Ingest-Transaktion, wenn ein Match beendet
+	// ist oder neu berechnet wurde (Turniere ordnen es dann zu).
+	MatchFinished func(ctx context.Context, tx *sql.Tx, matchID int64) error
 }
 
 func New(db *sql.DB, parsers []parser.Parser, maxUnparsed int) *Service {
@@ -196,7 +199,17 @@ func (s *Service) HandleEvent(ctx context.Context, boardID int64, ev Event) (Res
 	if err := s.applyMatchState(ctx, tx, mc, st); err != nil {
 		return res, err
 	}
+	if err := s.matchFinished(ctx, tx, matchID, st); err != nil {
+		return res, err
+	}
 	return res, tx.Commit()
+}
+
+func (s *Service) matchFinished(ctx context.Context, tx *sql.Tx, matchID int64, st *parser.State) error {
+	if !st.Finished || s.MatchFinished == nil {
+		return nil
+	}
+	return s.MatchFinished(ctx, tx, matchID)
 }
 
 func mcFrom(matchID, boardID int64, playedAt string) matchCtx {
@@ -596,6 +609,9 @@ func (s *Service) ReprocessMatch(ctx context.Context, matchID int64) error {
 		return err
 	}
 	if err := s.applyMatchState(ctx, tx, mc, st); err != nil {
+		return err
+	}
+	if err := s.matchFinished(ctx, tx, matchID, st); err != nil {
 		return err
 	}
 	return tx.Commit()

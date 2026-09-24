@@ -13,24 +13,27 @@ import (
 
 	"autodarts-stats/internal/ingest"
 	"autodarts-stats/internal/stats"
+	"autodarts-stats/internal/tournament"
 )
 
 type Server struct {
-	DB         *sql.DB
-	Ingest     *ingest.Service
-	Stats      *stats.Service
-	AdminPass  string
-	TrustProxy bool
-	CheckinTTL time.Duration
-	sess       sessions
-	limiter    *loginLimiter
-	static     http.Handler
+	DB          *sql.DB
+	Ingest      *ingest.Service
+	Stats       *stats.Service
+	Tournaments *tournament.Service
+	AdminPass   string
+	TrustProxy  bool
+	CheckinTTL  time.Duration
+	sess        sessions
+	limiter     *loginLimiter
+	static      http.Handler
 }
 
 type Options struct {
 	DB            *sql.DB
 	Ingest        *ingest.Service
 	Stats         *stats.Service
+	Tournaments   *tournament.Service
 	AdminPassword string
 	SessionSecret []byte
 	TrustProxy    bool
@@ -40,7 +43,7 @@ type Options struct {
 
 func New(o Options) *Server {
 	return &Server{
-		DB: o.DB, Ingest: o.Ingest, Stats: o.Stats, AdminPass: o.AdminPassword, TrustProxy: o.TrustProxy, CheckinTTL: o.CheckinTTL,
+		DB: o.DB, Ingest: o.Ingest, Stats: o.Stats, Tournaments: o.Tournaments, AdminPass: o.AdminPassword, TrustProxy: o.TrustProxy, CheckinTTL: o.CheckinTTL,
 		sess: sessions{secret: o.SessionSecret, secure: false}, limiter: newLoginLimiter(), static: o.Static,
 	}
 }
@@ -61,6 +64,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/h2h", s.handleH2H)
 	mux.HandleFunc("GET /api/matches", s.handleMatches)
 	mux.HandleFunc("GET /api/matches/{id}", s.handleMatch)
+	mux.HandleFunc("GET /api/tournaments", s.handleTournaments)
+	mux.HandleFunc("GET /api/tournaments/{id}", s.handleTournament)
+	mux.HandleFunc("GET /api/players/{id}/tournaments", s.handlePlayerTournaments)
 
 	mux.HandleFunc("POST /api/admin/login", s.handleLogin)
 	mux.HandleFunc("POST /api/admin/logout", s.handleLogout)
@@ -94,6 +100,16 @@ func (s *Server) Handler() http.Handler {
 	admin("GET /api/admin/pending", s.adminPending)
 	admin("POST /api/admin/pending/{match}/{index}", s.adminResolvePending)
 	admin("POST /api/admin/matches/{match}/slots/{index}", s.adminReassign)
+	admin("POST /api/admin/tournaments", s.adminCreateTournament)
+	admin("PUT /api/admin/tournaments/{id}", s.adminUpdateTournament)
+	admin("DELETE /api/admin/tournaments/{id}", s.adminTournamentAction(func(r *http.Request, id int64) error { return s.Tournaments.Delete(r.Context(), id) }))
+	admin("POST /api/admin/tournaments/{id}/start", s.adminTournamentAction(func(r *http.Request, id int64) error { return s.Tournaments.Start(r.Context(), id) }))
+	admin("POST /api/admin/tournaments/{id}/redraw", s.adminTournamentAction(func(r *http.Request, id int64) error { return s.Tournaments.Redraw(r.Context(), id) }))
+	admin("POST /api/admin/tournaments/{id}/results/{key}", s.adminTournamentResult)
+	admin("DELETE /api/admin/tournaments/{id}/results/{key}", s.adminTournamentAction(func(r *http.Request, id int64) error {
+		return s.Tournaments.ClearResult(r.Context(), id, r.PathValue("key"))
+	}))
+	admin("GET /api/admin/tournaments/{id}/candidates/{key}", s.adminTournamentCandidates)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeError(w, 404, "unbekannter Endpunkt") })
 	if s.static != nil {

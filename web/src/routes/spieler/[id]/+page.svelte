@@ -1,21 +1,25 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { api, qs, type Filter, type Meta, type Profile } from '$lib/api';
+  import { api, qs, type Filter, type Meta, type PlayerTournaments, type Profile } from '$lib/api';
   import AverageChart from '$lib/components/AverageChart.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import MatchList from '$lib/components/MatchList.svelte';
-  import { num, pct } from '$lib/format';
+  import { date, num, pct } from '$lib/format';
 
   let filter: Filter = $state({ from: '', to: '', variant: '' });
   let profile: Profile | null = $state(null);
   let meta: Meta | null = $state(null);
   let error = $state('');
+  let tournaments: PlayerTournaments | null = $state(null);
   api.get<Meta>('/api/meta').then((m) => (meta = m)).catch(() => {});
 
   $effect(() => {
     const id = page.params.id;
     const q = qs({ from: filter.from, to: filter.to, variant: filter.variant });
     api.get<Profile>(`/api/players/${id}${q}`).then((p) => { profile = p; error = ''; }).catch((e) => (error = e.message));
+  });
+  $effect(() => {
+    api.get<PlayerTournaments>(`/api/players/${page.params.id}/tournaments`).then((t) => (tournaments = t)).catch(() => (tournaments = null));
   });
 </script>
 
@@ -70,6 +74,33 @@
       {#each profile.variants as v}
         <span class="pill">{v.variant}: {v.wins}/{v.matches} Siege</span>
       {/each}
+    </div>
+  {/if}
+
+  {#if tournaments && tournaments.tournaments.length}
+    <h2>Turniere</h2>
+    <div class="card">
+      <p style="margin-top: 0">
+        {tournaments.tournaments.length} Teilnahme{tournaments.tournaments.length === 1 ? '' : 'n'}
+        · {tournaments.wins} Turniersieg{tournaments.wins === 1 ? '' : 'e'}
+        · {tournaments.podium}× auf dem Podest
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Turnier</th><th>Datum</th><th>Platz</th><th style="text-align:left">Erreicht</th><th>Spiele</th></tr></thead>
+          <tbody>
+            {#each tournaments.tournaments as t (t.tournament_id)}
+              <tr>
+                <td><a href="/turniere/{t.tournament_id}">{t.name}</a>{#if t.status === 'running'} <span class="pill">läuft</span>{/if}</td>
+                <td>{date(t.started_at)}</td>
+                <td>{#if t.place === 1}🏆 1{:else}{t.place || '–'}{/if} <span class="muted">/ {t.players}</span></td>
+                <td style="text-align:left">{t.label}{#if t.lucky_loser} <span class="pill" title="hat in der Lucky-Loser-Runde gespielt">LL</span>{/if}</td>
+                <td>{t.wins}/{t.matches}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
   {/if}
 

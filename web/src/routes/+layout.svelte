@@ -8,6 +8,7 @@
     { href: '/spieler', label: 'Spieler' },
     { href: '/h2h', label: 'Head-to-Head' },
     { href: '/matches', label: 'Matches' },
+    { href: '/turniere', label: 'Turniere' },
     { href: '/admin', label: 'Admin' },
   ];
   function isActive(href: string): boolean {
@@ -16,15 +17,19 @@
   }
 </script>
 
-<nav class="top">
-  <a href="/" class="brand"><img src="/favicon.svg" alt="" width="22" height="22" /> Your Darts</a>
-  {#each links as l}
-    <a href={l.href} class:active={isActive(l.href)}>{l.label}</a>
-  {/each}
-</nav>
-<main class="container">
+{#if page.url.pathname.endsWith('/beamer')}
   {@render children()}
-  <p class="muted" style="margin-top: 32px; font-size: 0.8rem">
-    Es werden Spielernamen und Spielstatistiken gespeichert. <a href="/datenschutz">Datenschutz</a>
-  </p>
-</main>
+{:else}
+  <nav class="top">
+    <a href="/" class="brand"><img src="/favicon.svg" alt="" width="22" height="22" /> Your Darts</a>
+    {#each links as l}
+      <a href={l.href} class:active={isActive(l.href)}>{l.label}</a>
+    {/each}
+  </nav>
+  <main class="container">
+    {@render children()}
+    <p class="muted" style="margin-top: 32px; font-size: 0.8rem">
+      Es werden Spielernamen und Spielstatistiken gespeichert. <a href="/datenschutz">Datenschutz</a>
+    </p>
+  </main>
+{/if}

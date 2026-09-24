@@ -186,8 +186,14 @@ func (s *Server) adminMerge(w http.ResponseWriter, r *http.Request) {
 		`UPDATE player_chips SET player_id = ? WHERE player_id = ?`,
 		`UPDATE checkins SET player_id = ? WHERE player_id = ?`,
 		`UPDATE match_pending SET suggested_id = ? WHERE suggested_id = ?`,
+		`DELETE FROM tournament_players WHERE player_id = ? AND tournament_id IN (SELECT tournament_id FROM tournament_players WHERE player_id = ?)`,
+		`UPDATE tournament_players SET player_id = ? WHERE player_id = ?`,
+		`UPDATE tournament_results SET player1_id = ? WHERE player1_id = ?`,
+		`UPDATE tournament_results SET player2_id = ? WHERE player2_id = ?`,
+		`UPDATE tournament_results SET winner_id = ? WHERE winner_id = ?`,
 	}
-	args := [][]any{{id, body.Into}, {body.Into, id}, {id, body.Into}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}}
+	args := [][]any{{id, body.Into}, {body.Into, id}, {id, body.Into}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id},
+		{id, body.Into}, {body.Into, id}, {body.Into, id}, {body.Into, id}, {body.Into, id}}
 	for i, q := range stmts {
 		if _, err := tx.Exec(q, args[i]...); err != nil {
 			writeError(w, 500, err.Error())

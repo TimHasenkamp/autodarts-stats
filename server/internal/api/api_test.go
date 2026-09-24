@@ -17,6 +17,7 @@ import (
 	"autodarts-stats/internal/parser"
 	"autodarts-stats/internal/parser/autodarts"
 	"autodarts-stats/internal/stats"
+	"autodarts-stats/internal/tournament"
 )
 
 const testdata = "../../../testdata/placeholder"
@@ -39,7 +40,11 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	ing := ingest.New(d, []parser.Parser{autodarts.New()}, 50)
-	srv := New(Options{DB: d, Ingest: ing, Stats: stats.New(d), AdminPassword: "geheim", SessionSecret: []byte("s3cret"), CheckinTTL: 4 * time.Hour})
+	tour := tournament.New(d)
+	// Die Testdaten stammen vom 20.09.2026 18:00; Turniere starten davor.
+	tour.Now = func() time.Time { return time.Date(2026, 9, 20, 17, 0, 0, 0, time.UTC) }
+	ing.MatchFinished = tour.MatchFinished
+	srv := New(Options{DB: d, Ingest: ing, Stats: stats.New(d), Tournaments: tour, AdminPassword: "geheim", SessionSecret: []byte("s3cret"), CheckinTTL: 4 * time.Hour})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	jar := &cookieJar{}
@@ -383,5 +388,63 @@ func TestRunningMatchPlayersVisible(t *testing.T) {
 		if p.Matches != 1 || p.OpenMatches != 0 || p.LegsPlayed != 2 {
 			t.Errorf("%s: matches=%d open=%d legs=%d", p.DisplayName, p.Matches, p.OpenMatches, p.LegsPlayed)
 		}
+	}
+}
+
+func TestTournamentAPI(t *testing.T) {
+	e := newEnv(t)
+	code, _ := e.do(t, "POST", "/api/admin/tournaments", map[string]any{"name": "Cup"}, nil)
+	if code != 401 {
+		t.Fatalf("ohne Login: %d", code)
+	}
+	e.do(t, "POST", "/api/admin/login", map[string]string{"password": "geheim"}, nil)
+	code, body := e.do(t, "POST", "/api/admin/tournaments", map[string]any{
+		"name": "Cup", "new_names": []string{"Tim", "Jürgen Müller"},
+		"rules": map[string]any{"rounds": []map[string]any{{"variant": "X01", "base_score": 501, "first_to": 2}}},
+	}, nil)
+	if code != 201 {
+		t.Fatalf("anlegen: %d %s", code, body)
+	}
+	var created struct{ ID int64 }
+	json.Unmarshal(body, &created)
+	path := "/api/admin/tournaments/" + strconv.FormatInt(created.ID, 10)
+	if code, body = e.do(t, "POST", path+"/start", nil, nil); code != 200 {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	if code, body = e.do(t, "POST", path+"/start", nil, nil); code != 400 {
+		t.Fatalf("zweiter start: %d %s", code, body)
+	}
+	// Das Match der beiden laeuft ueber den Ingest und landet im Finale.
+	e.ingest(t, "x01_leg1_running.json", "x01_leg1_finished.json", "x01_leg2_running.json", "x01_match_finished.json")
+	code, body = e.do(t, "GET", "/api/tournaments/"+strconv.FormatInt(created.ID, 10), nil, nil)
+	if code != 200 {
+		t.Fatalf("get: %d %s", code, body)
+	}
+	var v tournament.View
+	json.Unmarshal(body, &v)
+	if v.Status != "finished" || v.Champion == nil || len(v.Main) != 1 || v.Main[0].Matches[0].Source != "auto" {
+		t.Fatalf("turnier: %s", body)
+	}
+	if v.Stats == nil || len(v.Stats.Rows) != 2 || v.Stats.BestAverage == nil {
+		t.Fatalf("statistik: %s", body)
+	}
+	code, body = e.do(t, "GET", "/api/players/"+strconv.FormatInt(v.Champion.PlayerID, 10)+"/tournaments", nil, nil)
+	var h tournament.PlayerHistory
+	json.Unmarshal(body, &h)
+	if code != 200 || h.Wins != 1 || len(h.Tournaments) != 1 {
+		t.Fatalf("profil: %d %s", code, body)
+	}
+	code, body = e.do(t, "GET", "/api/tournaments", nil, nil)
+	if code != 200 || !bytes.Contains(body, []byte(`"Cup"`)) {
+		t.Fatalf("liste: %d %s", code, body)
+	}
+	if code, _ = e.do(t, "DELETE", "/api/admin/tournaments/"+strconv.FormatInt(created.ID, 10)+"/results/M1-0", nil, nil); code != 200 {
+		t.Fatalf("loesen: %d", code)
+	}
+	if code, _ = e.do(t, "DELETE", path, nil, nil); code != 200 {
+		t.Fatalf("loeschen: %d", code)
+	}
+	if code, _ = e.do(t, "GET", "/api/tournaments/"+strconv.FormatInt(created.ID, 10), nil, nil); code != 404 {
+		t.Fatalf("nach loeschen: %d", code)
 	}
 }

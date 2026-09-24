@@ -25,6 +25,14 @@ Siehe README.md für Aufbau, Befehle und API. Hier nur, was fürs Weiterarbeiten
   Chips (`player_chips`, nur Hash der UID) werden vom Agent (`cmd/autodarts-stats-agent`, Reader-Backends in
   `internal/reader`) am Board eingestempelt → `checkins` mit 4-stelligem Code, TTL `CHECKIN_TTL`.
   Zuordnung ist zum Spielzeitpunkt gültig, damit `reprocess` stabil bleibt; Overrides überleben reprocess.
+- Turniere (`internal/tournament`): Baum wird nicht gespeichert, sondern aus Auslosung + `tournament_results`
+  berechnet. Ergebnisse tragen die Paarung (player1/2); passt sie nach einer Korrektur nicht mehr, verfallen sie.
+  Auto-Zuordnung über den Ingest-Hook `MatchFinished` (läuft in der Ingest-Transaktion, nur `tx` benutzen – die DB
+  hat eine Verbindung; Fehler pro Turnier per Savepoint abgefangen, damit der Ingest nie blockiert). Nur Matches, die
+  nach dem Freiwerden der Paarung begonnen haben. Gelöste Zuordnungen → `tournament_ignored`.
+  Lucky Loser: Verlierer vor Einstiegsrunde E spielen eine Verliererrunde (Einstieg gestaffelt wie Doppel-K.-o.),
+  Sieger spielt Zusatzspiel „P“ gegen zugelosten Platz in Runde E. `ll_entry` = Abstand zum Finale.
+  Platz 3 + Einstieg vor dem Finale schließen sich aus.
 
 ## Autodarts-Adressen (geprueft am 23.09.2026 im ausgelieferten JS der Live-App)
 - Seite: `play.autodarts.com` (und `play.autodarts.io`, gleiche App, gleicher Bundle-Hash)
