@@ -36,7 +36,7 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, ci)
@@ -51,7 +51,7 @@ func (s *Server) handleBoardCheckins(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := s.Ingest.ActiveCheckins(r.Context(), boardID)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, list)
@@ -72,7 +72,7 @@ func (s *Server) adminProtect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.DB.ExecContext(r.Context(), `UPDATE players SET protected = ? WHERE id = ?`, body.Protected, id); err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -92,7 +92,11 @@ func (s *Server) adminCreatePlayer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 409, "Name existiert bereits")
 			return
 		}
-		writeError(w, 400, err.Error())
+		if errors.Is(err, ingest.ErrNameMissing) {
+			writeError(w, 400, "Name fehlt")
+			return
+		}
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 201, map[string]int64{"id": id})
@@ -120,7 +124,7 @@ func (s *Server) adminChips(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.QueryContext(r.Context(), `SELECT c.id, c.player_id, p.display_name, c.label, c.created_at, COALESCE(c.last_used_at,'')
 		FROM player_chips c JOIN players p ON p.id = c.player_id ORDER BY p.display_name, c.id`)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	known := []chipInfo{}
@@ -128,7 +132,7 @@ func (s *Server) adminChips(w http.ResponseWriter, r *http.Request) {
 		var c chipInfo
 		if err := rows.Scan(&c.ID, &c.PlayerID, &c.DisplayName, &c.Label, &c.CreatedAt, &c.LastUsedAt); err != nil {
 			rows.Close()
-			writeError(w, 500, err.Error())
+			internalError(w, r, err)
 			return
 		}
 		known = append(known, c)
@@ -137,7 +141,7 @@ func (s *Server) adminChips(w http.ResponseWriter, r *http.Request) {
 	urows, err := s.DB.QueryContext(r.Context(), `SELECT u.uid_hash, u.uid_hint, COALESCE(b.name,''), u.first_seen_at, u.last_seen_at, u.seen_count
 		FROM unknown_chips u LEFT JOIN boards b ON b.id = u.board_id ORDER BY u.last_seen_at DESC`)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	defer urows.Close()
@@ -145,7 +149,7 @@ func (s *Server) adminChips(w http.ResponseWriter, r *http.Request) {
 	for urows.Next() {
 		var u unknownChip
 		if err := urows.Scan(&u.UIDHash, &u.UIDHint, &u.BoardName, &u.FirstSeen, &u.LastSeen, &u.SeenCount); err != nil {
-			writeError(w, 500, err.Error())
+			internalError(w, r, err)
 			return
 		}
 		unknown = append(unknown, u)
@@ -186,7 +190,11 @@ func (s *Server) adminRegisterChip(w http.ResponseWriter, r *http.Request) {
 				writeError(w, 409, "Name existiert bereits, bitte bestehenden Spieler waehlen")
 				return
 			}
-			writeError(w, 400, err.Error())
+			if errors.Is(err, ingest.ErrNameMissing) {
+				writeError(w, 400, "Name fehlt")
+				return
+			}
+			internalError(w, r, err)
 			return
 		}
 		pid = id
@@ -196,7 +204,7 @@ func (s *Server) adminRegisterChip(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 409, "Chip ist bereits registriert")
 			return
 		}
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 201, map[string]int64{"player_id": pid})
@@ -209,7 +217,7 @@ func (s *Server) adminDeleteChip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.DB.ExecContext(r.Context(), `DELETE FROM player_chips WHERE id = ?`, id); err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -217,7 +225,7 @@ func (s *Server) adminDeleteChip(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminDeleteUnknownChip(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.DB.ExecContext(r.Context(), `DELETE FROM unknown_chips WHERE uid_hash = ?`, r.PathValue("hash")); err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -226,7 +234,7 @@ func (s *Server) adminDeleteUnknownChip(w http.ResponseWriter, r *http.Request) 
 func (s *Server) adminCheckins(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Ingest.ActiveCheckins(r.Context(), 0)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, list)
@@ -247,7 +255,7 @@ func (s *Server) adminManualCheckin(w http.ResponseWriter, r *http.Request) {
 	}
 	ci, err := s.Ingest.CheckinPlayer(r.Context(), body.BoardID, body.PlayerID, s.CheckinTTL)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, ci)
@@ -260,7 +268,7 @@ func (s *Server) adminEndCheckin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Ingest.EndCheckin(r.Context(), id); err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -290,7 +298,7 @@ func (s *Server) adminPending(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN players sp ON sp.id = mp.suggested_id LEFT JOIN boards b ON b.id = m.board_id
 		ORDER BY m.played_at DESC, mp.player_index`)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -299,7 +307,7 @@ func (s *Server) adminPending(w http.ResponseWriter, r *http.Request) {
 		var p pendingInfo
 		if err := rows.Scan(&p.MatchID, &p.PlayerIndex, &p.Name, &p.UserID, &p.SuggestedID, &p.SuggestedName, &p.Reason, &p.CreatedAt,
 			&p.PlayedAt, &p.Variant, &p.BoardName, &p.Finished, &p.Opponents); err != nil {
-			writeError(w, 500, err.Error())
+			internalError(w, r, err)
 			return
 		}
 		out = append(out, p)
@@ -330,7 +338,7 @@ func (s *Server) adminResolvePending(w http.ResponseWriter, r *http.Request) {
 		body.PlayerID = 0
 	}
 	if err := s.Ingest.ResolvePending(r.Context(), matchID, idx, body.PlayerID); err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})

@@ -44,6 +44,7 @@ func newEnv(t *testing.T) *env {
 	// Die Testdaten stammen vom 20.09.2026 18:00; Turniere starten davor.
 	tour.Now = func() time.Time { return time.Date(2026, 9, 20, 17, 0, 0, 0, time.UTC) }
 	ing.MatchFinished = tour.MatchFinished
+	ing.ReprocessFinished = tour.MatchesReprocessed
 	srv := New(Options{DB: d, Ingest: ing, Stats: stats.New(d), Tournaments: tour, AdminPassword: "geheim", SessionSecret: []byte("s3cret"), CheckinTTL: 4 * time.Hour})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)

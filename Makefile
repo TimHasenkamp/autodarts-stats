@@ -5,7 +5,7 @@ ARCHES   ?= amd64
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST      = server/internal/web/dist
 
-.PHONY: all build build-web build-server build-agent dist-placeholder test test-extension extension-zip package clean docker run
+.PHONY: all build build-web build-server build-agent dist-placeholder test test-extension test-tournament extension-zip package clean docker run
 
 all: build
 
@@ -43,6 +43,11 @@ test:
 test-extension: build-server
 	@test -d tools/extension-e2e/node_modules || { echo "Erst: cd tools/extension-e2e && npm install && npx playwright install chromium"; exit 1; }
 	tools/extension-e2e/run.sh
+
+## Browser-Test der Turniere ohne Extension (baut Frontend + Server selbst, siehe tools/tournament-e2e/README.md)
+test-tournament:
+	@test -d tools/tournament-e2e/node_modules || { echo "Erst: cd tools/tournament-e2e && npm install && npx playwright install chromium"; exit 1; }
+	tools/tournament-e2e/run.sh
 
 ## Extension als ZIP (zum Laden in Chrome/Firefox oder zum Weitergeben)
 extension-zip:

@@ -7,14 +7,29 @@
     selected = '',
     onselect,
     big = false,
-  }: { rounds: TRound[]; selected?: string; onselect?: (m: TMatch) => void; big?: boolean } = $props();
+    tv = false,
+  }: {
+    rounds: TRound[];
+    selected?: string;
+    onselect?: (m: TMatch) => void;
+    big?: boolean;
+    /** Beamer-Liveansicht: feste Spaltenbreiten (kein Layoutsprung beim Aktualisieren), hoher Kontrast. */
+    tv?: boolean;
+  } = $props();
+
+  const outcomeText: Record<string, string> = { withdrawn: 'w.o.', retired: 'Aufgabe', dq: 'Disq.' };
+  const outcomeTitle: Record<string, string> = {
+    withdrawn: 'kampflos (w.o.): ein Spieler hat sich zurückgezogen',
+    retired: 'Aufgabe',
+    dq: 'Disqualifikation',
+  };
 
   function clickable(m: TMatch): boolean {
     return !!onselect && (m.status === 'ready' || m.status === 'done');
   }
 </script>
 
-<div class="bracket" class:big>
+<div class="bracket" class:big class:tv>
   {#each rounds as r}
     <div class="round">
       <div class="head">
@@ -25,6 +40,9 @@
         {#each r.matches as m (m.key)}
           <button
             type="button"
+            data-testid="bracket-match"
+            data-key={m.key}
+            data-status={m.status}
             class="match {m.status}"
             class:sel={selected === m.key}
             disabled={!clickable(m)}
@@ -36,10 +54,11 @@
               {#if m.status === 'ready'}<span class="live">offen</span>{/if}
               {#if m.warning}<span class="warn">⚠</span>{/if}
               {#if m.source === 'manual'}<span class="src" title="von Hand eingetragen">✎</span>{/if}
+              {#if m.outcome}<span class="wo" data-testid="match-outcome" data-outcome={m.outcome} title={outcomeTitle[m.outcome]}>{outcomeText[m.outcome]}</span>{/if}
             </span>
             {#each [m.a, m.b] as s}
-              <span class="side" class:won={s.won} class:ph={!s.player_id}>
-                <span class="name">{s.display_name ?? s.placeholder ?? ''}</span>
+              <span class="side" class:won={s.won} class:ph={!s.player_id} class:withdrawn={!!s.withdrawn} data-withdrawn={s.withdrawn ? 'true' : undefined} title={s.withdrawn ? (s.withdrawn === 'dq' ? 'disqualifiziert' : 'zurückgezogen') : undefined}>
+                <span class="name" data-testid={s.won ? 'match-winner' : undefined}>{s.display_name ?? s.placeholder ?? ''}</span>
                 <span class="legs">{s.legs ?? ''}</span>
               </span>
             {/each}
@@ -69,6 +88,9 @@
   .match:not(:disabled):hover { border-color: var(--accent); background: var(--card); }
   .match.ready { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
   .match.walkover, .match.empty { opacity: 0.45; box-shadow: none; background: transparent; }
+  .match.forfeit { border-style: dashed; }
+  .wo { color: #b7791f; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.62rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+  .side.withdrawn .name { text-decoration: line-through; color: var(--muted); }
   .match.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
   .no { font-size: 0.68rem; color: var(--muted); display: flex; gap: 8px; align-items: center; letter-spacing: 0.04em; }
   .live { color: var(--accent); font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.62rem; }
@@ -86,4 +108,24 @@
   .big .match { font-size: 1.25rem; padding: 12px 16px; }
   .big .no { font-size: 0.8rem; }
   .big .live { font-size: 0.75rem; }
+
+  /* Beamer: feste Breiten, große Schrift, kräftiger Kontrast (Farben kommen vom Seiten-Container). */
+  .tv { gap: 34px; overflow: visible; padding-bottom: 0; }
+  .tv .round { width: 330px; min-width: 330px; max-width: 330px; flex: none; }
+  .tv .head { border-bottom: 2px solid var(--border-strong); margin-bottom: 16px; }
+  .tv .head strong { font-size: 1.6rem; }
+  .tv .head .muted { font-size: 0.95rem; }
+  .tv .matches { gap: 16px; }
+  .tv .match { font-size: 1.55rem; line-height: 1.3; padding: 12px 18px; border-width: 2px; gap: 4px; box-shadow: none; }
+  .tv .match.ready { border-color: var(--accent); background: var(--accent-soft); }
+  .tv .match.walkover, .tv .match.empty { opacity: 0.4; }
+  .tv .no { font-size: 0.95rem; }
+  .tv .live { font-size: 0.9rem; }
+  .tv .side .legs { min-width: 1.2em; text-align: right; }
+  .tv .side.won .name { color: var(--heading); font-weight: 700; }
+  .tv .side:not(.won) .name { font-weight: 500; }
+  .tv .match.done .side:not(.won) { color: var(--muted); }
+  .tv .target { font-size: 0.95rem; }
+  .tv .wo { font-size: 0.85rem; }
+  .tv .match.forfeit { border-style: dashed; }
 </style>

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -32,6 +33,12 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func Migrate(ctx context.Context, d *sql.DB) error {
+	return migrateUpTo(ctx, d, "")
+}
+
+// migrateUpTo wendet die Migrationen in Namensreihenfolge an, bei last != ""
+// nur bis einschliesslich last (fuer Tests alter Schemastaende).
+func migrateUpTo(ctx context.Context, d *sql.DB, last string) error {
 	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`); err != nil {
 		return err
 	}
@@ -47,6 +54,9 @@ func Migrate(ctx context.Context, d *sql.DB) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
+		if last != "" && name > last {
+			break
+		}
 		var n int
 		if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&n); err != nil {
 			return err
@@ -63,16 +73,23 @@ func Migrate(ctx context.Context, d *sql.DB) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, string(body)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %s: %w", name, err)
+			return rollback(tx, fmt.Errorf("migration %s: %w", name, err))
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(name) VALUES (?)`, name); err != nil {
-			tx.Rollback()
-			return err
+			return rollback(tx, fmt.Errorf("migration %s eintragen: %w", name, err))
 		}
 		if err := tx.Commit(); err != nil {
-			return err
+			return fmt.Errorf("migration %s commit: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// rollback bricht tx ab und haengt einen Rollback-Fehler an err an, statt
+// ihn zu verschlucken (eine halb angewandte Migration soll auffallen).
+func rollback(tx *sql.Tx, err error) error {
+	if rerr := tx.Rollback(); rerr != nil && !errors.Is(rerr, sql.ErrTxDone) {
+		return errors.Join(err, fmt.Errorf("rollback: %w", rerr))
+	}
+	return err
 }

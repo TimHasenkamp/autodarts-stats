@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"autodarts-stats/internal/ingest"
@@ -27,6 +28,12 @@ type Server struct {
 	sess        sessions
 	limiter     *loginLimiter
 	static      http.Handler
+	xffWarn     sync.Once
+	reprocess   reprocessJob
+	// reprocessWait: so lange wartet POST /api/admin/reprocess auf das
+	// Ergebnis, danach 202 und der Job laeuft im Hintergrund weiter
+	// (deutlich unter dem WriteTimeout des HTTP-Servers).
+	reprocessWait time.Duration
 }
 
 type Options struct {
@@ -45,6 +52,7 @@ func New(o Options) *Server {
 	return &Server{
 		DB: o.DB, Ingest: o.Ingest, Stats: o.Stats, Tournaments: o.Tournaments, AdminPass: o.AdminPassword, TrustProxy: o.TrustProxy, CheckinTTL: o.CheckinTTL,
 		sess: sessions{secret: o.SessionSecret, secure: false}, limiter: newLoginLimiter(), static: o.Static,
+		reprocessWait: 40 * time.Second,
 	}
 }
 
@@ -87,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	admin("GET /api/admin/matches/{id}/raw", s.adminMatchRaw)
 	admin("DELETE /api/admin/matches/{id}", s.adminDeleteMatch)
 	admin("POST /api/admin/reprocess", s.adminReprocess)
+	admin("GET /api/admin/reprocess", s.adminReprocessStatus)
 	admin("POST /api/admin/unparsed/reprocess", s.adminReprocessUnparsed)
 	admin("POST /api/admin/players", s.adminCreatePlayer)
 	admin("POST /api/admin/players/{id}/protect", s.adminProtect)
@@ -107,9 +116,14 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/admin/tournaments/{id}/redraw", s.adminTournamentAction(func(r *http.Request, id int64) error { return s.Tournaments.Redraw(r.Context(), id) }))
 	admin("POST /api/admin/tournaments/{id}/results/{key}", s.adminTournamentResult)
 	admin("DELETE /api/admin/tournaments/{id}/results/{key}", s.adminTournamentAction(func(r *http.Request, id int64) error {
-		return s.Tournaments.ClearResult(r.Context(), id, r.PathValue("key"))
+		return s.Tournaments.ClearResult(r.Context(), id, r.PathValue("key"), forced(r))
 	}))
 	admin("GET /api/admin/tournaments/{id}/candidates/{key}", s.adminTournamentCandidates)
+	admin("POST /api/admin/tournaments/{id}/players/{pid}/replace", s.adminTournamentReplace)
+	admin("POST /api/admin/tournaments/{id}/players/{pid}/swap", s.adminTournamentSwap)
+	admin("POST /api/admin/tournaments/{id}/players/{pid}/withdraw", s.adminTournamentWithdraw)
+	admin("DELETE /api/admin/tournaments/{id}/players/{pid}/withdraw", s.adminTournamentUndoWithdraw)
+	admin("POST /api/admin/tournaments/{id}/late/{key}", s.adminTournamentLate)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeError(w, 404, "unbekannter Endpunkt") })
 	if s.static != nil {
@@ -121,6 +135,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		// Global, damit auch Rohdaten-Endpunkte (adminUnparsedOne,
+		// adminMatchRaw) nie als HTML o.ae. interpretiert werden.
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		rw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(rw, r)
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -136,17 +153,44 @@ type statusWriter struct {
 
 func (w *statusWriter) WriteHeader(code int) { w.status = code; w.ResponseWriter.WriteHeader(code) }
 
+// clientIP liefert die IP fuer das Login-Rate-Limit.
+//
+// Mit TRUST_PROXY zaehlt das letzte Element von X-Forwarded-For: das haengt
+// der eigene Reverse-Proxy an (nginx: $proxy_add_x_forwarded_for, Caddy
+// ersetzt den Header ohne trusted_proxies ganz). Alles links davon kommt vom
+// Client und ist frei faelschbar. Genau ein Proxy davor wird vorausgesetzt.
+// X-Real-IP wird bewusst ignoriert: Caddy setzt es nicht und reicht einen
+// vom Client geschickten Wert unveraendert durch.
 func (s *Server) clientIP(r *http.Request) string {
+	xff := r.Header.Values("X-Forwarded-For")
 	if s.TrustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			return strings.TrimSpace(strings.Split(xff, ",")[0])
+		if ip := lastForwarded(xff); ip != "" {
+			return ip
 		}
+	} else if len(xff) > 0 {
+		s.xffWarn.Do(func() {
+			log.Printf("WARNUNG: Anfrage mit X-Forwarded-For, aber TRUST_PROXY ist aus; alle Clients teilen sich das Login-Limit des Proxys. Hinter einem Reverse-Proxy TRUST_PROXY=1 setzen.")
+		})
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// lastForwarded liefert das letzte gueltige Element aus (ggf. mehreren)
+// X-Forwarded-For-Headern.
+func lastForwarded(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := strings.Split(values[len(values)-1], ",")
+	ip := strings.TrimSpace(parts[len(parts)-1])
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+	return ip
 }
 
 // ---- Ingest ----
@@ -171,7 +215,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "API-Key ungueltig")
 			return
 		}
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	var req ingestRequest
@@ -186,13 +230,25 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "zu viele Events")
 		return
 	}
+	// Dauerhaft unbrauchbare Events (ingest.IsPermanent) werden pro Event
+	// gemeldet und bestaetigt, sonst sendet die Extension den Batch endlos
+	// neu. Bei einem voruebergehenden Fehler (SQLITE_BUSY, I/O, Kontext ...)
+	// bricht der Batch mit 503 ab: Die Extension behaelt ihn in der Queue und
+	// sendet ihn spaeter komplett erneut. Die bis dahin verarbeiteten Events
+	// sind idempotent, die Reihenfolge der Staende bleibt erhalten.
 	results := make([]ingest.Result, 0, len(req.Events))
-	for _, ev := range req.Events {
+	for i, ev := range req.Events {
 		res, err := s.Ingest.HandleEvent(r.Context(), boardID, ev)
 		if err != nil {
-			log.Printf("ingest: %v", err)
-			writeError(w, 500, "Verarbeitung fehlgeschlagen: "+err.Error())
-			return
+			if !ingest.IsPermanent(err) {
+				log.Printf("ingest: board %d event %d/%d (%q %q) voruebergehend fehlgeschlagen, batch wird wiederholt: %v",
+					boardID, i, len(req.Events), ev.Kind, ev.URL, err)
+				w.Header().Set("Retry-After", "30")
+				writeError(w, http.StatusServiceUnavailable, "voruebergehender fehler, bitte erneut senden")
+				return
+			}
+			log.Printf("ingest: board %d event %d (%q %q) verworfen: %v", boardID, i, ev.Kind, ev.URL, err)
+			res = ingest.Result{Error: "event ungueltig"}
 		}
 		results = append(results, res)
 	}
@@ -239,7 +295,7 @@ func pathID(r *http.Request, name string) (int64, bool) {
 func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	m, err := s.Stats.Meta(r.Context())
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, m)
@@ -252,7 +308,7 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Stats.Leaderboard(r.Context(), f)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	if rows == nil {
@@ -270,7 +326,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Stats.Players(r.Context(), f)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	if rows == nil {
@@ -291,7 +347,7 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, p)
@@ -310,7 +366,7 @@ func (s *Server) handleH2H(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, h)
@@ -323,7 +379,7 @@ func (s *Server) handleMatches(w http.ResponseWriter, r *http.Request) {
 	}
 	ms, err := s.Stats.RecentMatches(r.Context(), limit)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, ms)
@@ -341,7 +397,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, 500, err.Error())
+		internalError(w, r, err)
 		return
 	}
 	writeJSON(w, 200, m)

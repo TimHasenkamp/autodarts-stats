@@ -158,8 +158,15 @@ func TestUnparsedStored(t *testing.T) {
 	if n := count(t, d, `SELECT COUNT(*) FROM unparsed_events`); n != 1 {
 		t.Fatalf("unparsed = %d", n)
 	}
+	// Identisches Event erneut (Retry nach 503): kein Duplikat.
+	svc.HandleEvent(context.Background(), bid, ev(t, "not_a_match.json"))
+	if n := count(t, d, `SELECT COUNT(*) FROM unparsed_events`); n != 1 {
+		t.Fatalf("unparsed nach retry = %d", n)
+	}
 	for i := 0; i < 15; i++ {
-		svc.HandleEvent(context.Background(), bid, ev(t, "not_a_match.json"))
+		e := ev(t, "not_a_match.json")
+		e.URL += "/" + string(rune('a'+i))
+		svc.HandleEvent(context.Background(), bid, e)
 	}
 	if n := count(t, d, `SELECT COUNT(*) FROM unparsed_events`); n != 10 {
 		t.Fatalf("unparsed cap = %d", n)
@@ -400,5 +407,31 @@ func TestEchteAntwortDurchIngest(t *testing.T) {
 	}
 	if n := count(t, d, `SELECT COUNT(*) FROM matches`); n != 1 {
 		t.Fatalf("matches = %d", n)
+	}
+}
+
+// Ein nicht (mehr) beendetes Match darf kein finished_at behalten
+// (konsistent zu reprocessMatch).
+func TestFinishedAtClearedWhenUnfinished(t *testing.T) {
+	svc, d, bid := setup(t)
+	ctx := context.Background()
+	if _, err := svc.HandleEvent(ctx, bid, ev(t, "x01_leg1_running.json")); err != nil {
+		t.Fatal(err)
+	}
+	// Veralteter Endzeitpunkt, z.B. nachdem ein Match wieder geoeffnet wurde.
+	if _, err := d.Exec(`UPDATE matches SET finished = 0, finished_at = '2026-01-01T00:00:00.000Z'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.HandleEvent(ctx, bid, ev(t, "x01_leg2_running.json")); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM matches WHERE finished = 0 AND finished_at IS NULL`); n != 1 {
+		t.Fatal("finished_at bei offenem Match nicht geleert")
+	}
+	if _, err := svc.HandleEvent(ctx, bid, ev(t, "x01_match_finished.json")); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, d, `SELECT COUNT(*) FROM matches WHERE finished = 1 AND finished_at IS NOT NULL`); n != 1 {
+		t.Fatal("finished_at nach Matchende nicht gesetzt")
 	}
 }

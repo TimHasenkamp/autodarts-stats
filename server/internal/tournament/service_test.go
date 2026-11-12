@@ -118,7 +118,7 @@ func TestTournamentFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Vor dem Start: Ergebnisse gehen nicht.
-	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Anna"), 2, 0); err == nil {
+	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Anna"), 2, 0, ResultOpts{}); err == nil {
 		t.Fatal("Ergebnis vor dem Start akzeptiert")
 	}
 	f.match("Anna", "Ben", 2, 0, 501) // vor dem Start gespielt: zaehlt nicht
@@ -153,10 +153,10 @@ func TestTournamentFlow(t *testing.T) {
 	}
 
 	// Platz 3 von Hand.
-	if err := f.svc.SetResult(f.ctx, id, "T", f.player("Carl"), 2, 0); err != nil {
+	if err := f.svc.SetResult(f.ctx, id, "T", f.player("Carl"), 0, 2, ResultOpts{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.SetResult(f.ctx, id, "T", f.player("Anna"), 2, 0); err == nil {
+	if err := f.svc.SetResult(f.ctx, id, "T", f.player("Anna"), 2, 0, ResultOpts{}); err == nil {
 		t.Fatal("Sieger ausserhalb der Paarung akzeptiert")
 	}
 	final := f.match("Dora", "Anna", 3, 1, 501)
@@ -181,7 +181,7 @@ func TestTournamentFlow(t *testing.T) {
 	}
 
 	// Zuordnung des Finales loesen: bleibt geloest, Turnier laeuft wieder.
-	if err := f.svc.ClearResult(f.ctx, id, "M2-0"); err != nil {
+	if err := f.svc.ClearResult(f.ctx, id, "M2-0", false); err != nil {
 		t.Fatal(err)
 	}
 	f.match("Anna", "Ben", 2, 0, 501) // irgendein weiteres Match loest einen Abgleich aus
@@ -197,10 +197,10 @@ func TestTournamentFlow(t *testing.T) {
 	if len(cands) != 1 || cands[0].MatchID != final {
 		t.Fatalf("Kandidaten: %+v", cands)
 	}
-	if err := f.svc.LinkMatch(f.ctx, id, "M2-0", casual); err == nil {
+	if err := f.svc.LinkMatch(f.ctx, id, "M2-0", casual, false); err == nil {
 		t.Fatal("Match anderer Spieler verknuepft")
 	}
-	if err := f.svc.LinkMatch(f.ctx, id, "M2-0", final); err != nil {
+	if err := f.svc.LinkMatch(f.ctx, id, "M2-0", final, false); err != nil {
 		t.Fatal(err)
 	}
 	v = f.view(id)
@@ -212,7 +212,15 @@ func TestTournamentFlow(t *testing.T) {
 	}
 
 	// Korrektur in Runde 1: Ben statt Anna. Finale und dessen Ergebnis verfallen.
-	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Ben"), 2, 1); err != nil {
+	// Der Sieger braucht mehr Legs (M7), und ohne force kommt ein Konflikt (M4).
+	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Ben"), 2, 1, ResultOpts{}); err == nil {
+		t.Fatal("Sieger mit weniger Legs akzeptiert")
+	}
+	var ce *ConflictError
+	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Ben"), 1, 2, ResultOpts{}); !errors.As(err, &ce) || len(ce.Affected) == 0 || ce.Affected[0].Key != "M2-0" {
+		t.Fatalf("Korrektur ohne force: %v", err)
+	}
+	if err := f.svc.SetResult(f.ctx, id, "M1-0", f.player("Ben"), 1, 2, ResultOpts{Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	v = f.view(id)
@@ -237,13 +245,18 @@ func TestTournamentFlow(t *testing.T) {
 
 func TestStartValidation(t *testing.T) {
 	f := setup(t)
-	id, err := f.svc.Create(f.ctx, Input{Name: "Mini", NewNames: []string{"A", "B"}, LuckyLoser: true, LLEntry: 0})
+	// Unmoegliche Optionskombination wird schon beim Anlegen abgelehnt (M7),
+	// ebenso beim Aendern des Entwurfs.
+	var ie InputError
+	if _, err := f.svc.Create(f.ctx, Input{Name: "Mini", NewNames: []string{"A", "B"}, LuckyLoser: true, LLEntry: 0}); !errors.As(err, &ie) {
+		t.Fatalf("2 Spieler mit Lucky Loser angelegt: %v", err)
+	}
+	id, err := f.svc.Create(f.ctx, Input{Name: "Mini", NewNames: []string{"A", "B"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var ie InputError
-	if err := f.svc.Start(f.ctx, id); !errors.As(err, &ie) {
-		t.Fatalf("2 Spieler mit Lucky Loser: %v", err)
+	if err := f.svc.Update(f.ctx, id, Input{Name: "Mini", NewNames: []string{"A", "B"}, LuckyLoser: true, LLEntry: 0}); !errors.As(err, &ie) {
+		t.Fatalf("2 Spieler mit Lucky Loser geaendert: %v", err)
 	}
 	// Nach dem Umstellen geht es.
 	if err := f.svc.Update(f.ctx, id, Input{Name: "Mini", NewNames: []string{"A", "B", "C"}, LuckyLoser: true, LLEntry: 0}); err != nil {

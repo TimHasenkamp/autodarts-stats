@@ -54,6 +54,7 @@ func main() {
 	ing := ingest.New(d, parsers, cfg.MaxUnparsed)
 	tour := tournament.New(d)
 	ing.MatchFinished = tour.MatchFinished
+	ing.ReprocessFinished = tour.MatchesReprocessed
 
 	switch cmd {
 	case "serve":

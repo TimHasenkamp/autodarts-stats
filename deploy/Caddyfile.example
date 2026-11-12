@@ -1,4 +1,6 @@
 # Beispiel: TLS-Terminierung mit Caddy (automatisches Let's-Encrypt-Zertifikat).
 darts.your-admins.de {
+    # Caddy ersetzt X-Forwarded-For (ohne trusted_proxies) durch die echte Client-IP;
+    # Your Darts nimmt mit TRUST_PROXY=1 das letzte Element davon.
     reverse_proxy 127.0.0.1:8080
 }

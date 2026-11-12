@@ -30,6 +30,8 @@ type Side struct {
 	Placeholder string `json:"placeholder,omitempty"`
 	Legs        *int   `json:"legs,omitempty"`
 	Won         bool   `json:"won"`
+	// Withdrawn: der Spieler hat sich zurueckgezogen (retired | dq).
+	Withdrawn string `json:"withdrawn,omitempty"`
 }
 
 type MatchView struct {
@@ -44,6 +46,9 @@ type MatchView struct {
 	MatchID int64  `json:"match_id,omitempty"`
 	Source  string `json:"source,omitempty"`
 	Warning string `json:"warning,omitempty"`
+	// Outcome: retired (Aufgabe), dq (Disqualifikation) oder withdrawn
+	// (kampflos nach Rueckzug); leer bei regulaerem Ergebnis.
+	Outcome string `json:"outcome,omitempty"`
 	// Target beschreibt, wohin der Sieger kommt (nur beim Zusatzspiel).
 	Target string `json:"target,omitempty"`
 }
@@ -58,6 +63,10 @@ type Participant struct {
 	PlayerID    int64  `json:"player_id"`
 	DisplayName string `json:"display_name"`
 	Placement
+	// ReplacedBy: Ersatzspieler (nur bei ersetzten Spielern).
+	ReplacedBy *PlayerName `json:"replaced_by,omitempty"`
+	// Played: hat im Turnier schon ein Ergebnis (Tausch nicht mehr moeglich).
+	Played bool `json:"played"`
 }
 
 type View struct {
@@ -103,8 +112,20 @@ func playerNames(ctx context.Context, q querier, ids []int64) (map[int64]string,
 	return out, rows.Err()
 }
 
+// readTx oeffnet eine Lese-Transaktion, damit alle Abfragen einer Ansicht
+// denselben Stand sehen. Die DB hat nur eine Verbindung: Solange tx offen
+// ist, darf nichts ueber s.DB laufen, und tx muss immer geschlossen werden.
+func (s *Service) readTx(ctx context.Context) (*sql.Tx, error) {
+	return s.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+}
+
 func (s *Service) List(ctx context.Context) ([]Summary, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM tournaments ORDER BY COALESCE(started_at, created_at) DESC, id DESC`)
+	tx, err := s.readTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM tournaments ORDER BY COALESCE(started_at, created_at) DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -117,14 +138,18 @@ func (s *Service) List(ctx context.Context) ([]Summary, error) {
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 	out := []Summary{}
 	for _, id := range ids {
-		t, err := load(ctx, s.DB, id)
+		t, err := load(ctx, tx, id)
 		if err != nil {
 			return nil, err
 		}
-		sum, _, err := s.summary(ctx, t)
+		sum, _, err := summary(ctx, tx, t)
 		if err != nil {
 			return nil, err
 		}
@@ -133,17 +158,17 @@ func (s *Service) List(ctx context.Context) ([]Summary, error) {
 	return out, nil
 }
 
-func (s *Service) summary(ctx context.Context, t *tournament) (Summary, *evaluation, error) {
-	sum := Summary{ID: t.ID, Name: t.Name, Status: t.Status, CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt, Players: len(t.Players)}
+func summary(ctx context.Context, q querier, t *tournament) (Summary, *evaluation, error) {
+	sum := Summary{ID: t.ID, Name: t.Name, Status: t.Status, CreatedAt: t.CreatedAt, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt, Players: len(t.current())}
 	if t.Status == StateDraft {
 		return sum, nil, nil
 	}
-	ev, err := evalTournament(ctx, s.DB, t)
+	ev, err := evalTournament(ctx, q, t)
 	if err != nil {
 		return sum, nil, err
 	}
 	if w := ev.final().winner; w.state == slotKnown {
-		names, err := playerNames(ctx, s.DB, []int64{w.player})
+		names, err := playerNames(ctx, q, []int64{w.player})
 		if err != nil {
 			return sum, nil, err
 		}
@@ -153,21 +178,35 @@ func (s *Service) summary(ctx context.Context, t *tournament) (Summary, *evaluat
 }
 
 func (s *Service) Get(ctx context.Context, id int64) (*View, error) {
-	t, err := load(ctx, s.DB, id)
+	tx, err := s.readTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sum, ev, err := s.summary(ctx, t)
+	defer tx.Rollback()
+	return buildView(ctx, tx, id)
+}
+
+// buildView baut die Ansicht; alle Lesezugriffe laufen ueber q.
+func buildView(ctx context.Context, q querier, id int64) (*View, error) {
+	t, err := load(ctx, q, id)
 	if err != nil {
 		return nil, err
 	}
-	names, err := playerNames(ctx, s.DB, t.Players)
+	sum, ev, err := summary(ctx, q, t)
+	if err != nil {
+		return nil, err
+	}
+	everyone := t.everyone()
+	names, err := playerNames(ctx, q, everyone)
 	if err != nil {
 		return nil, err
 	}
 	v := &View{Summary: sum, ThirdPlace: t.ThirdPlace, LuckyLoser: t.LuckyLoser, LLEntry: t.LLEntry, Rules: t.Rules,
 		RoundNames: []string{}, Main: []RoundView{}, LuckyRounds: []RoundView{}, Next: []MatchView{}, Standings: []Participant{}}
 	rounds := RoundCount(len(t.Players))
+	if rounds == 0 {
+		rounds = RoundCount(len(t.current()))
+	}
 	for r := 1; r <= rounds; r++ {
 		v.RoundNames = append(v.RoundNames, RoundName(rounds, r))
 	}
@@ -211,11 +250,25 @@ func (s *Service) Get(ctx context.Context, id int64) (*View, error) {
 	for _, m := range ev.ready() {
 		v.Next = append(v.Next, mv(m.node))
 	}
-	pl := ev.placements(t.Players)
-	for _, pid := range ranking(t.Players, pl) {
-		v.Standings = append(v.Standings, Participant{PlayerID: pid, DisplayName: names[pid], Placement: pl[pid]})
+	pl := ev.placements(everyone)
+	played := map[int64]bool{}
+	for _, m := range ev.memo {
+		if r := m.result; r != nil {
+			played[r.Player1], played[r.Player2] = true, true
+		}
 	}
-	v.Stats, err = s.stats(ctx, t.ID, ev, names)
+	replacedBy := map[int64]int64{}
+	for _, f := range t.Former {
+		replacedBy[f.player] = f.replacedBy
+	}
+	for _, pid := range ranking(everyone, pl) {
+		p := Participant{PlayerID: pid, DisplayName: names[pid], Placement: pl[pid], Played: played[pid]}
+		if by, ok := replacedBy[pid]; ok && pl[pid].Replaced {
+			p.ReplacedBy = &PlayerName{PlayerID: by, DisplayName: names[by]}
+		}
+		v.Standings = append(v.Standings, p)
+	}
+	v.Stats, err = stats(ctx, q, ev, names, everyone)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +283,9 @@ func matchView(ev *evaluation, nd *node, names map[int64]string) MatchView {
 		switch sl.state {
 		case slotKnown:
 			sd.PlayerID, sd.DisplayName = sl.player, names[sl.player]
+			if w, ok := ev.ro.withdrawn[sl.player]; ok && ev.L.seatPlayer[sl.seat] == sl.player {
+				sd.Withdrawn = w.Reason
+			}
 		case slotNone:
 			sd.Placeholder = "Freilos"
 			if src.kind != srcBye {
@@ -246,12 +302,20 @@ func matchView(ev *evaluation, nd *node, names map[int64]string) MatchView {
 		if r.Player1 != m.a.player {
 			la, lb = lb, la
 		}
-		out.A.Legs, out.B.Legs = &la, &lb
+		// Aufgabe/Disqualifikation ohne gespielte Legs: keine kuenstlichen Legs zeigen.
+		if r.Outcome == "" || la+lb > 0 {
+			out.A.Legs, out.B.Legs = &la, &lb
+		}
 		out.A.Won, out.B.Won = r.Winner == m.a.player, r.Winner == m.b.player
-		out.MatchID, out.Source, out.Warning = r.MatchID, r.Source, r.Warning
+		out.MatchID, out.Source, out.Warning, out.Outcome = r.MatchID, r.Source, r.Warning, r.Outcome
 	}
 	if m.status == StatusWalkover {
 		out.A.Won, out.B.Won = m.a.state == slotKnown, m.b.state == slotKnown
+	}
+	if m.status == StatusForfeit {
+		out.Outcome = OutcomeWithdrawn
+		out.A.Won = m.winner.state == slotKnown && m.winner.seat == m.a.seat
+		out.B.Won = m.winner.state == slotKnown && m.winner.seat == m.b.seat
 	}
 	return out
 }
@@ -306,7 +370,7 @@ type Stats struct {
 
 // stats: Siege und Legs aus den Turnierergebnissen (auch von Hand
 // eingetragene), Wurfstatistik aus den verknuepften Matches.
-func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map[int64]string) (*Stats, error) {
+func stats(ctx context.Context, q querier, ev *evaluation, names map[int64]string, order []int64) (*Stats, error) {
 	rows := map[int64]*StatRow{}
 	get := func(pid int64) *StatRow {
 		r, ok := rows[pid]
@@ -344,7 +408,7 @@ func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map
 	}
 	if len(mids) > 0 {
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(mids)), ",")
-		lr, err := s.DB.QueryContext(ctx, `SELECT l.player_id, SUM(l.points), SUM(CASE WHEN l.points IS NOT NULL THEN l.darts ELSE 0 END),
+		lr, err := q.QueryContext(ctx, `SELECT l.player_id, SUM(l.points), SUM(CASE WHEN l.points IS NOT NULL THEN l.darts ELSE 0 END),
 			SUM(l.count_180), SUM(l.count_140plus), SUM(l.count_100plus), MAX(l.checkout)
 			FROM match_legs l WHERE l.match_id IN (`+ph+`) GROUP BY l.player_id`, mids...)
 		if err != nil {
@@ -369,8 +433,12 @@ func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map
 			}
 			r.Count180, r.Count140Plus, r.Count100Plus, r.HighestCheckout = c180, c140, c100, hco
 		}
+		if err := lr.Err(); err != nil {
+			lr.Close()
+			return nil, err
+		}
 		lr.Close()
-		mr, err := s.DB.QueryContext(ctx, `SELECT player_id, MAX(average) FROM match_players WHERE match_id IN (`+ph+`) AND average IS NOT NULL GROUP BY player_id`, mids...)
+		mr, err := q.QueryContext(ctx, `SELECT player_id, MAX(average) FROM match_players WHERE match_id IN (`+ph+`) AND average IS NOT NULL GROUP BY player_id`, mids...)
 		if err != nil {
 			return nil, err
 		}
@@ -386,6 +454,10 @@ func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map
 				get(pid).BestMatchAvg = &b
 			}
 		}
+		if err := mr.Err(); err != nil {
+			mr.Close()
+			return nil, err
+		}
 		mr.Close()
 	}
 	st := &Stats{Rows: []StatRow{}}
@@ -394,7 +466,7 @@ func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map
 			*cur = &Leader{PlayerID: r.PlayerID, DisplayName: r.DisplayName, Value: v}
 		}
 	}
-	for _, pid := range ev.L.orderPlayers() {
+	for _, pid := range order {
 		r, ok := rows[pid]
 		if !ok {
 			continue
@@ -410,19 +482,6 @@ func (s *Service) stats(ctx context.Context, id int64, ev *evaluation, names map
 		lead(&st.HighestCheckout, r, float64(r.HighestCheckout))
 	}
 	return st, nil
-}
-
-// orderPlayers liefert die Spieler in Auslosungsreihenfolge.
-func (L *layout) orderPlayers() []int64 {
-	var out []int64
-	for _, nd := range L.main[0] {
-		for _, s := range []source{nd.a, nd.b} {
-			if s.kind == srcPlayer {
-				out = append(out, s.player)
-			}
-		}
-	}
-	return out
 }
 
 // ---- Spielerprofil ----
@@ -446,8 +505,15 @@ type PlayerHistory struct {
 
 // ForPlayer listet die gestarteten Turniere eines Spielers, neueste zuerst.
 func (s *Service) ForPlayer(ctx context.Context, playerID int64) (*PlayerHistory, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT t.id FROM tournaments t JOIN tournament_players tp ON tp.tournament_id = t.id
-		WHERE tp.player_id = ? AND t.status <> ? ORDER BY t.started_at DESC, t.id DESC`, playerID, StateDraft)
+	tx, err := s.readTx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT t.id FROM tournaments t
+		WHERE t.status <> ? AND (EXISTS (SELECT 1 FROM tournament_players tp WHERE tp.tournament_id = t.id AND tp.player_id = ?)
+		   OR EXISTS (SELECT 1 FROM tournament_former tf WHERE tf.tournament_id = t.id AND tf.player_id = ?))
+		ORDER BY t.started_at DESC, t.id DESC`, StateDraft, playerID, playerID)
 	if err != nil {
 		return nil, err
 	}
@@ -460,18 +526,22 @@ func (s *Service) ForPlayer(ctx context.Context, playerID int64) (*PlayerHistory
 		}
 		ids = append(ids, id)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 	h := &PlayerHistory{Tournaments: []PlayerEntry{}}
 	for _, id := range ids {
-		t, err := load(ctx, s.DB, id)
+		t, err := load(ctx, tx, id)
 		if err != nil {
 			return nil, err
 		}
-		ev, err := evalTournament(ctx, s.DB, t)
+		ev, err := evalTournament(ctx, tx, t)
 		if err != nil {
 			return nil, err
 		}
-		e := PlayerEntry{TournamentID: id, Name: t.Name, Status: t.Status, StartedAt: t.StartedAt, Players: len(t.Players),
+		e := PlayerEntry{TournamentID: id, Name: t.Name, Status: t.Status, StartedAt: t.StartedAt, Players: len(t.current()),
 			Placement: ev.placements([]int64{playerID})[playerID]}
 		for _, m := range ev.memo {
 			if r := m.result; r != nil && (r.Player1 == playerID || r.Player2 == playerID) {

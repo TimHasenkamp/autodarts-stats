@@ -67,7 +67,10 @@ func (r Rules) forDistance(d int) Rule {
 
 // Config ist alles, was den Baum eines gestarteten Turniers festlegt.
 type Config struct {
-	Order       []int64 // Spieler in ausgeloster Reihenfolge
+	Order []int64 // Spieler in ausgeloster Reihenfolge
+	// Late: Nachmelder. Spiel in Runde 1 (Index) -> Spieler, der dort den
+	// Freilos-Platz einnimmt. Die Freilos-Verteilung haengt nur an len(Order).
+	Late        map[int]int64
 	ThirdPlace  bool
 	LuckyLoser  bool
 	LLEntry     int // Einstiegsrunde als Abstand zum Finale
@@ -124,6 +127,7 @@ const (
 type source struct {
 	kind   srcKind
 	player int64
+	seat   int // nur srcPlayer: Platz im Baum (Spiel i in Runde 1: 2i oben, 2i+1 unten)
 	key    string
 }
 
@@ -149,6 +153,9 @@ type layout struct {
 	third        *node
 	nodes        map[string]*node
 	all          []*node
+	seatPlayer   map[int]int64 // aktueller Spieler je Platz
+	seatOf       map[int64]int
+	byeMatch     map[int]bool // Spiele in Runde 1 mit Freilos (laut Auslosung)
 }
 
 func mkey(prefix string, round, index int) string {
@@ -162,7 +169,8 @@ func buildLayout(cfg Config) (*layout, error) {
 	}
 	R := RoundCount(n)
 	S := 1 << R
-	L := &layout{size: S, rounds: R, nodes: map[string]*node{}, main: make([][]*node, R)}
+	L := &layout{size: S, rounds: R, nodes: map[string]*node{}, main: make([][]*node, R),
+		seatPlayer: map[int]int64{}, seatOf: map[int64]int{}, byeMatch: map[int]bool{}}
 
 	// Runde 1: Freilose gleichmaessig ueber den Baum verteilen. Da es weniger
 	// Freilose als Spiele gibt, trifft nie Freilos auf Freilos.
@@ -172,15 +180,29 @@ func buildLayout(cfg Config) (*layout, error) {
 	for j := 0; j < byes; j++ {
 		isBye[j*half/byes] = true
 	}
+	for i := range cfg.Late {
+		if i < 0 || i >= half || !isBye[i] {
+			return nil, fmt.Errorf("Nachmelder auf Spiel %d: dort gibt es kein Freilos", i+1)
+		}
+	}
+	seat := func(s int, pid int64) source {
+		L.seatPlayer[s] = pid
+		L.seatOf[pid] = s
+		return source{kind: srcPlayer, player: pid, seat: s}
+	}
 	p := 0
 	for i := 0; i < half; i++ {
 		nd := &node{key: mkey("M", 1, i), bracket: BracketMain, round: 1, index: i}
-		nd.a = source{kind: srcPlayer, player: cfg.Order[p]}
+		nd.a = seat(2*i, cfg.Order[p])
 		p++
 		if isBye[i] {
+			L.byeMatch[i] = true
 			nd.b = source{kind: srcBye}
+			if pid := cfg.Late[i]; pid != 0 {
+				nd.b = seat(2*i+1, pid)
+			}
 		} else {
-			nd.b = source{kind: srcPlayer, player: cfg.Order[p]}
+			nd.b = seat(2*i+1, cfg.Order[p])
 			p++
 		}
 		L.main[0] = append(L.main[0], nd)
@@ -299,9 +321,12 @@ const (
 	slotNone // bleibt leer (Freilos)
 )
 
+// slot ist eine Seite einer Paarung. seat ist der Platz im Baum, ueber den der
+// Spieler hineingekommen ist; player der Spieler, der dort spielt bzw. spielte.
 type slot struct {
 	state  slotState
 	player int64
+	seat   int
 }
 
 // Result ist ein gespeichertes Ergebnis einer Paarung.
@@ -315,13 +340,16 @@ type Result struct {
 	MatchID   int64
 	Source    string
 	Warning   string
+	Outcome   string // "" = regulaer, sonst OutcomeRetired / OutcomeDQ
 	DecidedAt time.Time
 }
 
-func (r *Result) fits(a, b int64) bool {
-	pairOK := (r.Player1 == a && r.Player2 == b) || (r.Player1 == b && r.Player2 == a)
-	return pairOK && (r.Winner == a || r.Winner == b)
-}
+// Ausgang einer Paarung, die nicht regulaer zu Ende gespielt wurde.
+const (
+	OutcomeRetired   = "retired"   // Aufgabe des Verlierers
+	OutcomeDQ        = "dq"        // Disqualifikation des Verlierers
+	OutcomeWithdrawn = "withdrawn" // kampflos nach Rueckzug (berechnet, nie gespeichert)
+)
 
 // Status einer Paarung.
 const (
@@ -330,7 +358,22 @@ const (
 	StatusDone     = "done"     // Ergebnis liegt vor
 	StatusWalkover = "walkover" // Freilos, Spieler kommt kampflos weiter
 	StatusEmpty    = "empty"    // bleibt leer
+	StatusForfeit  = "forfeit"  // kampflos entschieden: ein Spieler hat sich zurueckgezogen
 )
+
+type withdrawal struct {
+	At     time.Time
+	Reason string
+}
+
+// roster sind die Teilnehmeraenderungen nach dem Start: fruehere Spieler je
+// Platz (Ersatzspieler) und Rueckzuege. Gespielte Ergebnisse eines frueheren
+// Spielers zaehlen fuer seinen Platz weiter; offene Paarungen spielt der
+// aktuelle Spieler.
+type roster struct {
+	former    map[int][]int64
+	withdrawn map[int64]withdrawal
+}
 
 type evalMatch struct {
 	node      *node
@@ -347,21 +390,69 @@ type evaluation struct {
 	L       *layout
 	results map[string]*Result
 	started time.Time
+	ro      *roster
 	memo    map[string]*evalMatch
 }
 
 func evaluate(L *layout, results map[string]*Result, started time.Time) *evaluation {
-	ev := &evaluation{L: L, results: results, started: started, memo: map[string]*evalMatch{}}
+	return evaluateWith(L, results, started, nil)
+}
+
+func evaluateWith(L *layout, results map[string]*Result, started time.Time, ro *roster) *evaluation {
+	if ro == nil {
+		ro = &roster{}
+	}
+	ev := &evaluation{L: L, results: results, started: started, ro: ro, memo: map[string]*evalMatch{}}
 	for _, nd := range L.all {
 		ev.match(nd.key)
 	}
 	return ev
 }
 
+func (ev *evaluation) current(seat int) slot {
+	return slot{state: slotKnown, seat: seat, player: ev.L.seatPlayer[seat]}
+}
+
+// inSeat: pid spielt bzw. spielte auf diesem Platz.
+func (ev *evaluation) inSeat(pid int64, seat int) bool {
+	if ev.L.seatPlayer[seat] == pid {
+		return true
+	}
+	for _, p := range ev.ro.former[seat] {
+		if p == pid {
+			return true
+		}
+	}
+	return false
+}
+
+func (ev *evaluation) withdrawn(s slot) (withdrawal, bool) {
+	if s.state != slotKnown {
+		return withdrawal{}, false
+	}
+	w, ok := ev.ro.withdrawn[s.player]
+	return w, ok
+}
+
+// fit prueft, ob ein Ergebnis zur Paarung der Plaetze sa/sb gehoert, und
+// liefert die Spieler in der Reihenfolge der Paarung.
+func (ev *evaluation) fit(r *Result, sa, sb int) (pa, pb int64, ok bool) {
+	if r == nil || (r.Winner != r.Player1 && r.Winner != r.Player2) {
+		return 0, 0, false
+	}
+	switch {
+	case ev.inSeat(r.Player1, sa) && ev.inSeat(r.Player2, sb):
+		return r.Player1, r.Player2, true
+	case ev.inSeat(r.Player2, sa) && ev.inSeat(r.Player1, sb):
+		return r.Player2, r.Player1, true
+	}
+	return 0, 0, false
+}
+
 func (ev *evaluation) resolve(s source) (slot, time.Time) {
 	switch s.kind {
 	case srcPlayer:
-		return slot{state: slotKnown, player: s.player}, time.Time{}
+		return ev.current(s.seat), time.Time{}
 	case srcWinner:
 		m := ev.match(s.key)
 		return m.winner, m.decidedAt
@@ -403,7 +494,10 @@ func (ev *evaluation) match(key string) *evalMatch {
 			other = m.b
 		}
 		m.loser = none
-		if other.state == slotKnown {
+		if w, ok := ev.withdrawn(other); ok {
+			// Zurueckgezogen und Freilos: niemand kommt weiter.
+			m.status, m.winner, m.decidedAt = StatusEmpty, none, later(m.readyAt, w.At)
+		} else if other.state == slotKnown {
 			m.status, m.winner, m.decidedAt = StatusWalkover, other, m.readyAt
 		} else {
 			m.status, m.winner = StatusWait, pending
@@ -412,14 +506,35 @@ func (ev *evaluation) match(key string) *evalMatch {
 		m.status, m.winner, m.loser = StatusWait, pending, pending
 	default:
 		r := ev.results[key]
-		if r != nil && r.fits(m.a.player, m.b.player) {
+		wa, isA := ev.withdrawn(m.a)
+		wb, isB := ev.withdrawn(m.b)
+		if pa, pb, ok := ev.fit(r, m.a.seat, m.b.seat); ok {
+			// Gespielt: das Ergebnis gilt, auch wenn auf dem Platz inzwischen
+			// ein Ersatzspieler steht oder der Spieler zurueckgezogen hat.
 			m.status, m.result, m.decidedAt = StatusDone, r, r.DecidedAt
-			lo := m.a.player
-			if lo == r.Winner {
-				lo = m.b.player
+			m.a.player, m.b.player = pa, pb
+			if r.Winner == pa {
+				m.winner, m.loser = ev.current(m.a.seat), ev.current(m.b.seat)
+			} else {
+				m.winner, m.loser = ev.current(m.b.seat), ev.current(m.a.seat)
 			}
-			m.winner = slot{state: slotKnown, player: r.Winner}
-			m.loser = slot{state: slotKnown, player: lo}
+		} else if isA || isB {
+			// Kampflos: wer zurueckgezogen hat, verliert die Paarung.
+			m.status, m.decidedAt = StatusForfeit, m.readyAt
+			if isA {
+				m.decidedAt = later(m.decidedAt, wa.At)
+			}
+			if isB {
+				m.decidedAt = later(m.decidedAt, wb.At)
+			}
+			switch {
+			case isA && isB:
+				m.winner, m.loser = none, none
+			case isA:
+				m.winner, m.loser = m.b, m.a
+			default:
+				m.winner, m.loser = m.a, m.b
+			}
 		} else {
 			m.status, m.winner, m.loser = StatusReady, pending, pending
 		}
@@ -455,9 +570,10 @@ func (ev *evaluation) final() *evalMatch {
 	return ev.memo[mkey("M", ev.L.rounds, 0)]
 }
 
-// complete: Sieger steht fest und ggf. auch Platz 3.
+// complete: Sieger steht fest (oder bleibt aus, weil beide Finalisten
+// zurueckgezogen haben) und ggf. auch Platz 3.
 func (ev *evaluation) complete() bool {
-	if ev.final().winner.state != slotKnown {
+	if ev.final().winner.state == slotPending {
 		return false
 	}
 	if ev.L.third != nil {
@@ -473,23 +589,27 @@ type Placement struct {
 	Label      string `json:"label"`
 	LuckyLoser bool   `json:"lucky_loser"` // hat in der Lucky-Loser-Runde gespielt
 	Out        bool   `json:"out"`
+	// Withdrawn: zurueckgezogen (OutcomeRetired oder OutcomeDQ).
+	Withdrawn string `json:"withdrawn,omitempty"`
+	// Replaced: durch einen Ersatzspieler ersetzt.
+	Replaced bool `json:"replaced,omitempty"`
 }
 
-// placements berechnet das Abschneiden aller Spieler. Massgeblich ist die
+// seatPlacements berechnet das Abschneiden je Platz. Massgeblich ist die
 // spaeteste Niederlage im Hauptbaum bzw. im Zusatzspiel. Verlierer der Runde k
 // teilen sich Platz 2^(R-k)+1.
-func (ev *evaluation) placements(players []int64) map[int64]Placement {
+func (ev *evaluation) seatPlacements() map[int]Placement {
 	L := ev.L
-	out := map[int64]Placement{}
-	stage := map[int64]int{} // spaeteste Niederlage, doppelt gezaehlt (Zusatzspiel = 2E-1)
-	terminal := map[int64]bool{}
-	inLL := map[int64]bool{}
-	lose := func(pid int64, st int, final bool) {
-		if st > stage[pid] {
-			stage[pid] = st
+	out := map[int]Placement{}
+	stage := map[int]int{} // spaeteste Niederlage, doppelt gezaehlt (Zusatzspiel = 2E-1)
+	terminal := map[int]bool{}
+	inLL := map[int]bool{}
+	lose := func(seat int, st int, final bool) {
+		if st > stage[seat] {
+			stage[seat] = st
 		}
 		if final {
-			terminal[pid] = true
+			terminal[seat] = true
 		}
 	}
 	for _, nd := range L.all {
@@ -497,44 +617,60 @@ func (ev *evaluation) placements(players []int64) map[int64]Placement {
 		if nd.bracket == BracketLL {
 			for _, s := range []slot{m.a, m.b} {
 				if s.state == slotKnown {
-					inLL[s.player] = true
+					inLL[s.seat] = true
 				}
 			}
 		}
-		if m.status != StatusDone {
-			continue
+		var losers []int
+		switch m.status {
+		case StatusDone:
+			losers = append(losers, m.loser.seat)
+		case StatusForfeit:
+			for _, s := range []slot{m.a, m.b} {
+				if _, ok := ev.withdrawn(s); ok {
+					losers = append(losers, s.seat)
+				}
+			}
 		}
-		lo := m.loser.player
-		switch nd.bracket {
-		case BracketMain:
-			// Mit Lucky Loser geht es vor der Einstiegsrunde weiter, mit Platz 3 nach dem Halbfinale.
-			final := !(L.entry > 0 && nd.round < L.entry) && !(L.third != nil && nd.round == L.rounds-1)
-			lose(lo, 2*nd.round, final)
-		case BracketLL:
-			terminal[lo] = true
-		case BracketPlayin:
-			lose(lo, 2*L.entry-1, true)
-		case BracketThird:
-			terminal[lo] = true
+		for _, lo := range losers {
+			switch nd.bracket {
+			case BracketMain:
+				// Mit Lucky Loser geht es vor der Einstiegsrunde weiter, mit Platz 3 nach dem Halbfinale.
+				final := !(L.entry > 0 && nd.round < L.entry) && !(L.third != nil && nd.round == L.rounds-1)
+				lose(lo, 2*nd.round, final)
+			case BracketLL:
+				terminal[lo] = true
+			case BracketPlayin:
+				lose(lo, 2*L.entry-1, true)
+			case BracketThird:
+				terminal[lo] = true
+			}
 		}
 	}
 	champ := ev.final().winner
-	for _, pid := range players {
-		pl := Placement{LuckyLoser: inLL[pid]}
-		st := stage[pid]
+	var tm *evalMatch
+	if L.third != nil {
+		tm = ev.memo["T"]
+		if tm.status != StatusDone && tm.status != StatusForfeit {
+			tm = nil
+		}
+	}
+	for seat := range L.seatPlayer {
+		pl := Placement{LuckyLoser: inLL[seat]}
+		st := stage[seat]
 		switch {
-		case champ.state == slotKnown && champ.player == pid:
+		case champ.state == slotKnown && champ.seat == seat:
 			pl.Place, pl.Label, pl.Out = 1, "Sieger", true
-		case L.third != nil && ev.memo["T"].status == StatusDone && ev.memo["T"].winner.player == pid:
+		case tm != nil && tm.winner.state == slotKnown && tm.winner.seat == seat:
 			pl.Place, pl.Label, pl.Out = 3, "Platz 3", true
-		case L.third != nil && ev.memo["T"].status == StatusDone && ev.memo["T"].loser.player == pid:
+		case tm != nil && tm.loser.state == slotKnown && tm.loser.seat == seat:
 			pl.Place, pl.Label, pl.Out = 4, "Platz 4", true
-		case terminal[pid] || (st > 0 && ev.complete()):
+		case terminal[seat] || (st > 0 && ev.complete()):
 			pl.Out = true
 			if st%2 == 1 { // Zusatzspiel verloren: zaehlt wie Aus in der Runde davor
 				pl.Place = L.size>>(L.entry-1) + 1
 				pl.Label = "Zusatzspiel"
-			} else {
+			} else if st > 0 {
 				k := st / 2
 				pl.Place = L.size>>k + 1
 				pl.Label = RoundName(L.rounds, k)
@@ -542,20 +678,64 @@ func (ev *evaluation) placements(players []int64) map[int64]Placement {
 		default:
 			pl.Label = "im Turnier"
 		}
+		out[seat] = pl
+	}
+	return out
+}
+
+// WithdrawnLabel benennt einen Rueckzug.
+func WithdrawnLabel(reason string) string {
+	if reason == OutcomeDQ {
+		return "disqualifiziert"
+	}
+	return "zurückgezogen"
+}
+
+// placements liefert das Abschneiden je Spieler. Ein ersetzter Spieler ist
+// ausgeschieden ohne Platz, ein zurueckgezogener behaelt den Platz seiner
+// (kampflosen) Niederlage.
+func (ev *evaluation) placements(players []int64) map[int64]Placement {
+	sp := ev.seatPlacements()
+	out := map[int64]Placement{}
+	for _, pid := range players {
+		if seat, ok := ev.L.seatOf[pid]; ok {
+			pl := sp[seat]
+			if w, ok := ev.ro.withdrawn[pid]; ok && pl.Place != 1 {
+				pl.Withdrawn, pl.Out = w.Reason, true
+				pl.Label = WithdrawnLabel(w.Reason)
+				if pl.Place > 0 {
+					pl.Label += " (" + sp[seat].Label + ")"
+				}
+			}
+			out[pid] = pl
+			continue
+		}
+		pl := Placement{Label: "im Turnier"}
+		for _, list := range ev.ro.former {
+			for _, p := range list {
+				if p == pid {
+					pl = Placement{Label: "ersetzt", Out: true, Replaced: true}
+				}
+			}
+		}
 		out[pid] = pl
 	}
 	return out
 }
 
-// ranking sortiert Spieler nach Platzierung (0 = noch dabei, zuerst).
+// ranking sortiert Spieler nach Platzierung: noch dabei zuerst, dann nach
+// Platz, zuletzt Ausgeschiedene ohne Platz (ersetzt, zurueckgezogen).
 func ranking(players []int64, pl map[int64]Placement) []int64 {
-	out := append([]int64(nil), players...)
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := pl[out[i]].Place, pl[out[j]].Place
-		if a == 0 || b == 0 {
-			return a == 0 && b != 0
+	rank := func(p Placement) int {
+		switch {
+		case p.Place > 0:
+			return p.Place
+		case !p.Out:
+			return 0
 		}
-		return a < b
-	})
+		return 1 << 30
+	}
+	out := append([]int64(nil), players...)
+	sort.SliceStable(out, func(i, j int) bool { return rank(pl[out[i]]) < rank(pl[out[j]]) })
 	return out
 }

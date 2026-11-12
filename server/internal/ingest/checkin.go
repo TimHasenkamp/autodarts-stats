@@ -14,7 +14,10 @@ import (
 	"autodarts-stats/internal/names"
 )
 
-var ErrUnknownChip = errors.New("unbekannter Chip")
+var ErrUnknownChip = errors.New("unbekannter chip")
+
+// ErrNameMissing: der (normalisierte) Spielername ist leer.
+var ErrNameMissing = errors.New("name fehlt")
 
 // NormalizeUID vereinheitlicht Chip-Seriennummern (Hex, ohne Trenner, klein).
 func NormalizeUID(uid string) string {
@@ -214,7 +217,7 @@ func (s *Service) CreatePlayer(ctx context.Context, displayName string, protecte
 	name := strings.TrimSpace(displayName)
 	norm := names.Normalize(name)
 	if norm == "" {
-		return 0, errors.New("Name fehlt")
+		return 0, ErrNameMissing
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {

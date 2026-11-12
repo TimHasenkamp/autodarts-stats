@@ -120,7 +120,15 @@
   }
   async function reprocess() {
     await guard(async () => {
-      const r = await api.post<{ matches: number }>('/api/admin/reprocess');
+      type ReprocessStatus = { running: boolean; matches: number; error?: string };
+      let r = await api.post<ReprocessStatus>('/api/admin/reprocess');
+      // Dauert es laenger, antwortet der Server mit 202 und rechnet im Hintergrund weiter.
+      while (r.running) {
+        info = 'Neuberechnung läuft …';
+        await new Promise((ok) => setTimeout(ok, 2000));
+        r = await api.get<ReprocessStatus>('/api/admin/reprocess');
+      }
+      if (r.error) throw new ApiError(500, r.error);
       info = `${r.matches} Matches neu berechnet.`;
       await loadAll();
     });

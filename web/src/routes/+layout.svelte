@@ -17,7 +17,7 @@
   }
 </script>
 
-{#if page.url.pathname.endsWith('/beamer')}
+{#if /\/beamer(\/|$)/.test(page.url.pathname)}
   {@render children()}
 {:else}
   <nav class="top">

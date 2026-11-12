@@ -1,8 +1,11 @@
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Vollständige Fehlerantwort (z. B. 409 mit betroffenen Paarungen). */
+  data: unknown;
+  constructor(status: number, message: string, data: unknown = null) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -22,7 +25,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     const msg = data && typeof data === 'object' && 'error' in data ? String((data as { error: string }).error) : res.statusText;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, data);
   }
   return data as T;
 }
@@ -188,6 +191,8 @@ export interface TSide {
   placeholder?: string;
   legs?: number;
   won: boolean;
+  /** Spieler hat sich zurückgezogen: 'retired' (Aufgabe) | 'dq' (Disqualifikation). */
+  withdrawn?: 'retired' | 'dq';
 }
 
 export interface TMatch {
@@ -195,13 +200,15 @@ export interface TMatch {
   no: number;
   bracket: 'main' | 'll' | 'playin' | 'third';
   round: number;
-  status: 'wait' | 'ready' | 'done' | 'walkover' | 'empty';
+  status: 'wait' | 'ready' | 'done' | 'walkover' | 'empty' | 'forfeit';
   rule: Rule;
   a: TSide;
   b: TSide;
   match_id?: number;
   source?: 'auto' | 'link' | 'manual';
   warning?: string;
+  /** retired = Aufgabe, dq = Disqualifikation, withdrawn = kampflos nach Rückzug. */
+  outcome?: 'retired' | 'dq' | 'withdrawn';
   target?: string;
 }
 
@@ -216,11 +223,23 @@ export interface Placement {
   label: string;
   lucky_loser: boolean;
   out: boolean;
+  withdrawn?: 'retired' | 'dq';
+  replaced?: boolean;
 }
 
 export interface TParticipant extends Placement {
   player_id: number;
   display_name: string;
+  replaced_by?: { player_id: number; display_name: string };
+  /** hat im Turnier schon ein Ergebnis (Tausch nicht mehr möglich) */
+  played: boolean;
+}
+
+/** 409-Antwort: Paarungen, deren Ergebnisse durch eine Änderung verfallen würden. */
+export interface TConflict {
+  error: string;
+  affected: { key: string; no: number; label: string }[];
+  forceable: boolean;
 }
 
 export interface TStatRow {

@@ -40,6 +40,9 @@ type Result struct {
 	MatchID    string `json:"match_id,omitempty"`
 	LegsSaved  int    `json:"legs_saved"`
 	Finished   bool   `json:"finished"`
+	// Error ist gesetzt, wenn das Event nicht verarbeitet werden konnte
+	// (die API meldet Fehler pro Event statt den ganzen Batch abzulehnen).
+	Error string `json:"error,omitempty"`
 }
 
 // matchCtx buendelt, was die Spielerzuordnung ueber ein Match wissen muss.
@@ -57,6 +60,13 @@ type Service struct {
 	// MatchFinished laeuft in der Ingest-Transaktion, wenn ein Match beendet
 	// ist oder neu berechnet wurde (Turniere ordnen es dann zu).
 	MatchFinished func(ctx context.Context, tx *sql.Tx, matchID int64) error
+	// ReprocessFinished ist optional. Ist es gesetzt, ruft Reprocess den
+	// MatchFinished-Hook nicht mehr pro Match auf, sondern nach allen Matches
+	// genau einmal in einer eigenen Transaktion, mit den IDs aller beendeten
+	// Matches (aufsteigend). So muss z.B. jedes Turnier nur einmal statt
+	// einmal pro Match abgeglichen werden. Einzelne Neuberechnungen
+	// (ReprocessMatch, ResolvePending) rufen weiterhin MatchFinished.
+	ReprocessFinished func(ctx context.Context, tx *sql.Tx, finished []int64) error
 }
 
 func New(db *sql.DB, parsers []parser.Parser, maxUnparsed int) *Service {
@@ -104,16 +114,44 @@ func normalizeBody(b json.RawMessage) json.RawMessage {
 	return t
 }
 
-// HandleEvent verarbeitet ein einzelnes Event idempotent.
+// HandleEvent verarbeitet ein einzelnes Event idempotent: Wiederholtes
+// Senden desselben Events (Retry nach 503) erzeugt keine Duplikate.
+//
+// Fehler sind entweder dauerhaft (IsPermanent, errors.Is(err,
+// ErrInvalidEvent)) – dann wurde das Event, soweit moeglich, unter
+// unparsed_events abgelegt und darf verworfen werden – oder voruebergehend;
+// dann wurde nichts von diesem Event gespeichert und der Client soll es
+// erneut senden.
 func (s *Service) HandleEvent(ctx context.Context, boardID int64, ev Event) (Result, error) {
+	res, err := s.handleEvent(ctx, boardID, ev, s.MaxUnparsed)
+	if err == nil || !IsPermanent(err) {
+		return res, err
+	}
+	// Die Transaktion ist zurueckgerollt; das Event zur Analyse im Admin
+	// ("Unerkannte Events") ablegen. Scheitert das, ist es wieder ein
+	// voruebergehender Fehler und der Client wiederholt.
+	ev.Body = normalizeBody(ev.Body)
+	if perr := s.storeUnparsed(ctx, boardID, ev, "verarbeitung fehlgeschlagen: "+err.Error(), s.MaxUnparsed); perr != nil {
+		return res, perr
+	}
+	return res, Invalid(err)
+}
+
+// handleEvent ist HandleEvent mit eigener Obergrenze fuer unerkannte Events
+// (0 = nicht speichern). Der Wert wird durchgereicht statt s.MaxUnparsed zu
+// aendern, damit parallele Ingest-Requests unbeeinflusst bleiben.
+func (s *Service) handleEvent(ctx context.Context, boardID int64, ev Event, maxUnparsed int) (Result, error) {
 	ev.Body = normalizeBody(ev.Body)
 	st, pname, err := parser.ParseAny(s.Parsers, ev.Kind, ev.URL, ev.Body)
 	if err != nil {
 		reason := err.Error()
-		if perr := s.storeUnparsed(ctx, boardID, ev, reason); perr != nil {
+		if perr := s.storeUnparsed(ctx, boardID, ev, reason, maxUnparsed); perr != nil {
 			return Result{}, perr
 		}
 		return Result{Recognized: false}, nil
+	}
+	if st.MatchID == "" || len(st.MatchID) > 200 {
+		return Result{}, Invalid(fmt.Errorf("match-id ungueltig (%d zeichen)", len(st.MatchID)))
 	}
 	res := Result{Recognized: true, Parser: pname, MatchID: st.MatchID, Finished: st.Finished}
 	now := s.Now()
@@ -148,9 +186,9 @@ func (s *Service) HandleEvent(ctx context.Context, boardID int64, ev Event) (Res
 	}
 
 	if !exists {
-		r, err := tx.ExecContext(ctx, `INSERT INTO matches (autodarts_match_id, board_id, played_at, variant, settings_json, finished, last_set, last_leg, raw_json, received_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			st.MatchID, boardID, ts(st.StartedAt), st.Variant, string(st.Settings), st.Finished, st.Set, st.Leg, string(ev.Body), ts(now), ts(now))
+		r, err := tx.ExecContext(ctx, `INSERT INTO matches (autodarts_match_id, board_id, played_at, variant, settings_json, finished, last_set, last_leg, raw_json, received_at, updated_at, finished_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? END)`,
+			st.MatchID, boardID, ts(st.StartedAt), st.Variant, string(st.Settings), st.Finished, st.Set, st.Leg, string(ev.Body), ts(now), ts(now), st.Finished, ts(now))
 		if err != nil {
 			return res, err
 		}
@@ -173,8 +211,9 @@ func (s *Service) HandleEvent(ctx context.Context, boardID int64, ev Event) (Res
 			}
 			res.LegsSaved += n
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE matches SET raw_json = ?, last_set = ?, last_leg = ?, finished = ?, variant = ?, settings_json = ?, updated_at = ?, board_id = COALESCE(board_id, ?) WHERE id = ?`,
-			string(ev.Body), st.Set, st.Leg, st.Finished, st.Variant, string(st.Settings), ts(now), boardID, matchID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE matches SET raw_json = ?, last_set = ?, last_leg = ?, finished = ?, variant = ?, settings_json = ?, updated_at = ?, board_id = COALESCE(board_id, ?),
+			finished_at = CASE WHEN ? THEN COALESCE(finished_at, ?) END WHERE id = ?`,
+			string(ev.Body), st.Set, st.Leg, st.Finished, st.Variant, string(st.Settings), ts(now), boardID, st.Finished, ts(now), matchID); err != nil {
 			return res, err
 		}
 	}
@@ -470,19 +509,27 @@ func (s *Service) ResolvePending(ctx context.Context, matchID int64, index int, 
 	return s.ReprocessMatch(ctx, matchID)
 }
 
-func (s *Service) storeUnparsed(ctx context.Context, boardID int64, ev Event, reason string) error {
-	if s.MaxUnparsed <= 0 {
+func (s *Service) storeUnparsed(ctx context.Context, boardID int64, ev Event, reason string, maxUnparsed int) error {
+	if maxUnparsed <= 0 {
 		return nil
 	}
 	body := ev.Body
 	if len(body) > 512*1024 {
 		body = body[:512*1024]
 	}
-	if _, err := s.DB.ExecContext(ctx, `INSERT INTO unparsed_events (board_id, kind, url, reason, raw_json, received_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		boardID, ev.Kind, ev.URL, reason, string(body), ts(s.Now())); err != nil {
+	// Ein nach 503 erneut gesendeter Batch enthaelt dieselben unerkannten
+	// Events noch einmal: identische Eintraege nicht doppelt ablegen.
+	r, err := s.DB.ExecContext(ctx, `INSERT INTO unparsed_events (board_id, kind, url, reason, raw_json, received_at)
+		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (
+			SELECT 1 FROM unparsed_events WHERE board_id IS ? AND kind = ? AND url = ? AND raw_json = ?)`,
+		boardID, ev.Kind, ev.URL, reason, string(body), ts(s.Now()), boardID, ev.Kind, ev.URL, string(body))
+	if err != nil {
 		return err
 	}
-	_, err := s.DB.ExecContext(ctx, `DELETE FROM unparsed_events WHERE id NOT IN (SELECT id FROM unparsed_events ORDER BY id DESC LIMIT ?)`, s.MaxUnparsed)
+	if n, _ := r.RowsAffected(); n == 0 {
+		return nil
+	}
+	_, err = s.DB.ExecContext(ctx, `DELETE FROM unparsed_events WHERE id NOT IN (SELECT id FROM unparsed_events ORDER BY id DESC LIMIT ?)`, maxUnparsed)
 	return err
 }
 
@@ -508,11 +555,13 @@ func (s *Service) ReprocessUnparsed(ctx context.Context) (recognized, total int,
 		list = append(list, r)
 	}
 	rows.Close()
-	saveMax := s.MaxUnparsed
-	s.MaxUnparsed = 0 // waehrenddessen nichts erneut als unparsed speichern
-	defer func() { s.MaxUnparsed = saveMax }()
 	for _, r := range list {
-		res, err := s.HandleEvent(ctx, r.board, Event{Kind: r.kind, URL: r.url, Body: json.RawMessage(r.raw)})
+		// maxUnparsed 0: weiterhin unerkannte Events nicht erneut speichern
+		// (sie liegen ja schon in unparsed_events).
+		res, err := s.handleEvent(ctx, r.board, Event{Kind: r.kind, URL: r.url, Body: json.RawMessage(r.raw)}, 0)
+		if IsPermanent(err) {
+			continue // bleibt liegen, blockiert aber die uebrigen nicht
+		}
 		if err != nil {
 			return recognized, len(list), fmt.Errorf("event %d: %w", r.id, err)
 		}
@@ -528,6 +577,7 @@ func (s *Service) ReprocessUnparsed(ctx context.Context) (recognized, total int,
 
 // Reprocess berechnet match_players und match_legs aller Matches aus den
 // gespeicherten Rohdaten neu (z.B. nach Parser-Aenderungen).
+// Mit ReprocessFinished laeuft der Turnier-Hook einmal am Ende statt pro Match.
 func (s *Service) Reprocess(ctx context.Context) (int, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM matches ORDER BY id`)
 	if err != nil {
@@ -543,9 +593,28 @@ func (s *Service) Reprocess(ctx context.Context) (int, error) {
 		ids = append(ids, id)
 	}
 	rows.Close()
+	batch := s.ReprocessFinished != nil
+	var finished []int64
 	for _, id := range ids {
-		if err := s.ReprocessMatch(ctx, id); err != nil {
+		done, err := s.reprocessMatch(ctx, id, !batch)
+		if err != nil {
 			return 0, fmt.Errorf("match %d: %w", id, err)
+		}
+		if done {
+			finished = append(finished, id)
+		}
+	}
+	if batch {
+		tx, err := s.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return 0, err
+		}
+		defer tx.Rollback()
+		if err := s.ReprocessFinished(ctx, tx, finished); err != nil {
+			return 0, fmt.Errorf("abgleich nach reprocess: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, err
 		}
 	}
 	return len(ids), nil
@@ -553,29 +622,36 @@ func (s *Service) Reprocess(ctx context.Context) (int, error) {
 
 // ReprocessMatch berechnet ein einzelnes Match aus seinen Rohdaten neu.
 func (s *Service) ReprocessMatch(ctx context.Context, matchID int64) error {
+	_, err := s.reprocessMatch(ctx, matchID, true)
+	return err
+}
+
+// reprocessMatch liefert, ob das Match beendet ist. runHook=false laesst
+// MatchFinished aus (Reprocess ruft dann ReprocessFinished gesammelt).
+func (s *Service) reprocessMatch(ctx context.Context, matchID int64, runHook bool) (bool, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	var raw, playedAt string
 	var boardID sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `SELECT raw_json, board_id, played_at FROM matches WHERE id = ?`, matchID).Scan(&raw, &boardID, &playedAt); err != nil {
-		return err
+		return false, err
 	}
 	mc := mcFrom(matchID, boardID.Int64, playedAt)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM match_pending WHERE match_id = ?`, matchID); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM match_legs WHERE match_id = ?`, matchID); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM match_players WHERE match_id = ?`, matchID); err != nil {
-		return err
+		return false, err
 	}
 	snaps, err := tx.QueryContext(ctx, `SELECT set_no, leg_no, raw_json FROM match_snapshots WHERE match_id = ? ORDER BY set_no, leg_no`, matchID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	type snap struct {
 		set, leg int
@@ -586,7 +662,7 @@ func (s *Service) ReprocessMatch(ctx context.Context, matchID int64) error {
 		var sn snap
 		if err := snaps.Scan(&sn.set, &sn.leg, &sn.raw); err != nil {
 			snaps.Close()
-			return err
+			return false, err
 		}
 		list = append(list, sn)
 	}
@@ -597,22 +673,25 @@ func (s *Service) ReprocessMatch(ctx context.Context, matchID int64) error {
 			continue
 		}
 		if _, err := s.applyLegState(ctx, tx, mc, sn.set, sn.leg, st); err != nil {
-			return err
+			return false, err
 		}
 	}
 	st, _, err := parser.ParseAny(s.Parsers, "", "", []byte(raw))
 	if err != nil {
-		return tx.Commit() // Rohdaten nicht mehr lesbar: Match bleibt ohne Aggregate.
+		return false, tx.Commit() // Rohdaten nicht mehr lesbar: Match bleibt ohne Aggregate.
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE matches SET variant = ?, settings_json = ?, finished = ?, last_set = ?, last_leg = ? WHERE id = ?`,
-		st.Variant, string(st.Settings), st.Finished, st.Set, st.Leg, matchID); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, `UPDATE matches SET variant = ?, settings_json = ?, finished = ?, last_set = ?, last_leg = ?,
+		finished_at = CASE WHEN ? THEN COALESCE(finished_at, updated_at) END WHERE id = ?`,
+		st.Variant, string(st.Settings), st.Finished, st.Set, st.Leg, st.Finished, matchID); err != nil {
+		return false, err
 	}
 	if err := s.applyMatchState(ctx, tx, mc, st); err != nil {
-		return err
+		return false, err
 	}
-	if err := s.matchFinished(ctx, tx, matchID, st); err != nil {
-		return err
+	if runHook {
+		if err := s.matchFinished(ctx, tx, matchID, st); err != nil {
+			return false, err
+		}
 	}
-	return tx.Commit()
+	return st.Finished, tx.Commit()
 }

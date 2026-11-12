@@ -52,7 +52,7 @@ In den Extension-Optionen Backend-URL, API-Key und Board-Name eintragen, „Verb
 | `DB_PATH`        | `autodarts-stats.db`  | SQLite-Datei (WAL) |
 | `ADMIN_PASSWORD` | leer = Admin aus      | Passwort für den Admin-Bereich |
 | `SESSION_SECRET` | zufällig pro Start    | HMAC-Secret für Admin-Cookies; setzen, damit Logins Neustarts überleben |
-| `TRUST_PROXY`    | `0`                   | `1`, wenn hinter Reverse-Proxy (X-Forwarded-For fürs Login-Rate-Limit) |
+| `TRUST_PROXY`    | `0`                   | `1`, wenn hinter genau einem Reverse-Proxy (nginx/Caddy). Fürs Login-Rate-Limit zählt dann das **letzte** Element von `X-Forwarded-For` (vom Proxy angehängt); `X-Real-IP` wird ignoriert. Kommt `X-Forwarded-For` an, obwohl `TRUST_PROXY` aus ist, warnt das Log einmal. |
 | `MAX_UNPARSED`   | `200`                 | Wie viele unerkannte Payloads zum Debuggen aufbewahrt werden |
 | `CHECKIN_TTL`    | `4h`                  | Gültigkeit eines Chip-Check-ins |
 
@@ -167,7 +167,8 @@ Board (Bearer API-Key): `POST /api/checkin {"uid"}` und `GET /api/checkins`.
 Admin (Cookie-Session nach `POST /api/admin/login {"password"}`): Spieler anlegen/umbenennen/mergen/schützen,
 Aliase, löschen, Boards, Chips, Check-ins, Freigabe-Queue (`GET /api/admin/pending`,
 `POST /api/admin/pending/{match}/{index}`), Slots umhängen (`POST /api/admin/matches/{match}/slots/{index}`),
-unerkannte Events, `POST /api/admin/reprocess`.
+unerkannte Events, `POST /api/admin/reprocess` (wartet bis ~40 s auf das Ergebnis `{"matches"}`, sonst 202
+`{"running":true}` und der Lauf geht im Hintergrund weiter; Status per `GET /api/admin/reprocess`).
 Turniere: `POST /api/admin/tournaments`, `PUT|DELETE /api/admin/tournaments/{id}`, `.../start`, `.../redraw`,
 `POST|DELETE .../results/{key}` (`{"match_id"}` oder `{"winner_id","legs1","legs2"}`), `GET .../candidates/{key}`.
 

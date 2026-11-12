@@ -33,6 +33,14 @@ Siehe README.md für Aufbau, Befehle und API. Hier nur, was fürs Weiterarbeiten
   Lucky Loser: Verlierer vor Einstiegsrunde E spielen eine Verliererrunde (Einstieg gestaffelt wie Doppel-K.-o.),
   Sieger spielt Zusatzspiel „P“ gegen zugelosten Platz in Runde E. `ll_entry` = Abstand zum Finale.
   Platz 3 + Einstieg vor dem Finale schließen sich aus.
+  Teilnehmeränderungen nach dem Start (Migration 004): Auswertung über feste Plätze. Ersetzen → alter Spieler in
+  `tournament_former`, Ergebnisse gelten, wenn beide Spieler zum Platz gehören (aktuell oder früher). Zurückziehen
+  (`withdrawn_at`) wird nicht gespeichert, sondern als Status `forfeit` berechnet. Nachmelden belegt `bye_slot`.
+  Änderungen laufen über `mutate` (Vorher/Nachher): wegfallende Folgeergebnisse → 409 mit Liste, bei
+  Ergebniskorrekturen mit `?force=1` erzwingbar. Spieler in Turnieren ≠ draft nicht löschbar/mergebar (RESTRICT).
+- Ingest: vorübergehende Fehler (busy, Kontext, I/O) → 503, Extension sendet neu; nur `ingest.IsPermanent`-Fehler
+  werden pro Event gemeldet und als unerkannt abgelegt. Admin-Reprocess läuft als Hintergrundjob.
+- Beamer: `/turniere/{id}/beamer` (Diashow), `/turniere/{id}/beamer/baum` (Baum, Polling `?intervall=`, Reload).
 
 ## Autodarts-Adressen (geprueft am 23.09.2026 im ausgelieferten JS der Live-App)
 - Seite: `play.autodarts.com` (und `play.autodarts.io`, gleiche App, gleicher Bundle-Hash)
@@ -62,3 +70,4 @@ anschließend `autodarts-stats reprocess`. Unerkannte Payloads sind im Admin unt
 ## Tests
 `cd server && go test ./...` – Normalisierung, Parser (gegen `testdata/`), Ingest-Idempotenz/Leg-Fluss/Reprocess, HTTP-API inkl. Admin.
 `cd web && npm run check` – svelte-check.
+`make test-tournament` – Playwright ohne Extension (`tools/tournament-e2e/`, 11 Szenarien, Port 18200).
